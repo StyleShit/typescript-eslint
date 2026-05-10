@@ -6,6 +6,10 @@ on:
   pull_request_target:
     types: [synchronize]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.number || github.ref }}
+  cancel-in-progress: true
+
 permissions: {}
 
 jobs:
@@ -24,6 +28,17 @@ jobs:
           AFTER_SHA: ${{ github.event.pull_request.head.sha }}
         with:
           script: |
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              per_page: 1,
+            });
+
+            if (reviews.length === 0) {
+              return;
+            }
+
             const before = process.env.BEFORE_SHA;
             const after = process.env.AFTER_SHA;
 
@@ -44,11 +59,11 @@ jobs:
             const lines = [
               `Hi @${author}, thanks for the update!\n\n`,
 
-              'Just a quick heads-up: please try to avoid force-pushing moving forward.',
-              'Rewriting history makes it harder for us to track incremental changes',
+              'Just a quick heads-up: please try to avoid force-pushing moving forward. ',
+              'Rewriting history makes it harder for us to track incremental changes ',
               'between reviews.\n\n',
 
-              'Since we squash merge anyway, there is no need to keep the commit',
+              'Since we squash merge anyway, there is no need to keep the commit ',
               'history "clean" on this branch. Standard pushes are much preferred!',
             ];
 
