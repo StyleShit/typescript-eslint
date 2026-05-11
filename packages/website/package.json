@@ -16,7 +16,7 @@
     "clear": "docusaurus clear",
     "clean": "rimraf dist/ build/ .docusaurus/ && pnpm run clear",
     "format": "pnpm -w run format",
-    "generate-website-dts": "tsx ./tools/generate-website-dts.mts",
+    "generate-website-dts": "node ./tools/generate-website-dts.mts",
     "stylelint": "stylelint \"src/**/*.css\"",
     "stylelint:fix": "stylelint \"src/**/*.css\" --fix",
     "lint": "pnpm -w exec nx lint",
@@ -86,7 +86,6 @@
     "stylelint-config-recommended": "^16.0.0",
     "stylelint-config-standard": "^38.0.0",
     "stylelint-order": "^7.0.1",
-    "tsx": "catalog:",
     "unified": "^11.0.5",
     "vfile": "^6.0.3"
   },
