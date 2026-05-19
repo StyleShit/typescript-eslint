@@ -3,8 +3,6 @@
 // RUN THE FOLLOWING COMMAND FROM THE WORKSPACE ROOT TO REGENERATE:
 // npx nx generate-lib repo
 
-//
-
 export type Lib =
   | 'decorators'
   | 'decorators.legacy'
