@@ -19,6 +19,7 @@ export default {
     config: ['vitest.config.mts'],
     entry: ['tests/**/*.{bench,test,test-d}.?(c|m)ts?(x)'],
   },
+  //
 
   workspaces: {
     '.': {
