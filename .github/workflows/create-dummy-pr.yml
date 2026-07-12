@@ -1,0 +1,50 @@
+name: Create Dummy PR
+
+# Utility workflow for testing the sync-review-labels automation on a fork.
+# Manually dispatched: it creates a throwaway branch with a trivial change and opens a PR
+# against the default branch so you have something to request review on / approve / request
+# changes on. The resulting PR is safe to close.
+
+on:
+  workflow_dispatch:
+    inputs:
+      title:
+        description: Title for the dummy PR
+        required: false
+        default: 'chore: dummy PR for review-label testing'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  create_dummy_pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Create dummy branch and open PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_TITLE: ${{ inputs.title }}
+        run: |
+          set -euo pipefail
+
+          BRANCH="dummy-pr/${GITHUB_RUN_ID}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git switch -c "$BRANCH"
+
+          mkdir -p .dummy
+          date -u +"dummy change %Y-%m-%dT%H:%M:%SZ (run ${GITHUB_RUN_ID})" > .dummy/scratch.txt
+
+          git add .dummy/scratch.txt
+          git commit -m "chore: dummy change for review-label testing"
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --base "$GITHUB_REF_NAME" \
+            --head "$BRANCH" \
+            --title "$PR_TITLE" \
+            --body "Automated dummy PR to exercise the sync-review-labels workflow. Safe to close."
