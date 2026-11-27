@@ -115,7 +115,7 @@ describe(createParseSettings, () => {
       [
         {
           projectService: {
-            backend: 'tsgo' as const,
+            EXPERIMENTAL_backend: 'tsgo' as const,
             defaultProject: 'tsconfig.eslint.json',
           },
         },
@@ -125,7 +125,7 @@ describe(createParseSettings, () => {
       expect(() =>
         createParseSettings('', {
           filePath: '/project/file.ts',
-          projectService: { backend: 'tsgo' },
+          projectService: { EXPERIMENTAL_backend: 'tsgo' },
           ...options,
         }),
       ).toThrow(identifyingTerm);
@@ -139,7 +139,7 @@ describe(createParseSettings, () => {
     ])('selects the tsgo backend for %s', (_name, options) => {
       const parseSettings = createParseSettings('', {
         filePath: '/project/file.ts',
-        projectService: { backend: 'tsgo', ...options },
+        projectService: { EXPERIMENTAL_backend: 'tsgo', ...options },
       });
 
       expect(parseSettings.backend).toBe('tsgo');
@@ -245,7 +245,7 @@ describe(createParseSettings, () => {
           expect(() =>
             createParseSettings('', {
               filePath: '/project/file.ts',
-              projectService: { backend: 'tsgo' },
+              projectService: { EXPERIMENTAL_backend: 'tsgo' },
             }),
           ).toThrow('The tsgo backend requires classic TypeScript 6');
         });
@@ -297,7 +297,7 @@ describe(createParseSettings, () => {
         expect(() =>
           createParseSettings('', {
             filePath: '/project/file.ts',
-            projectService: { backend: 'tsgo' },
+            projectService: { EXPERIMENTAL_backend: 'tsgo' },
           }),
         ).toThrow('The tsgo backend requires classic TypeScript 6.0');
       },
@@ -313,7 +313,7 @@ describe(createParseSettings, () => {
         expect(() =>
           createParseSettings('', {
             filePath: '/project/file.ts',
-            projectService: { backend: 'tsgo' },
+            projectService: { EXPERIMENTAL_backend: 'tsgo' },
           }),
         ).toThrow(
           'The tsgo backend requires a Node.js version that can require() ES modules: 20.19, 22.12, or newer.',

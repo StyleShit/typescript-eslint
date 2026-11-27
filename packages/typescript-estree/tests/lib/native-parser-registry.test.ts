@@ -7,7 +7,7 @@ it.skipIf(process.env.TYPESCRIPT_ESLINT_BACKEND === 'tsgo')(
     try {
       parseAndGenerateServices('', {
         filePath: '/project/file.ts',
-        projectService: { backend: 'tsgo' },
+        projectService: { EXPERIMENTAL_backend: 'tsgo' },
       });
     } catch (error) {
       thrown = error;

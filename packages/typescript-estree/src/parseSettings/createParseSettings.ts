@@ -294,11 +294,11 @@ function resolveBackend(tsestreeOptions: Partial<TSESTreeOptions>) {
   const { projectService } = tsestreeOptions;
   const projectServiceOptions =
     projectService && typeof projectService === 'object' ? projectService : {};
-  const requested = projectServiceOptions.backend === 'tsgo';
+  const requested = projectServiceOptions.EXPERIMENTAL_backend === 'tsgo';
 
-  // An explicit `backend: 'classic'` opts out of the environment override.
+  // An explicit `EXPERIMENTAL_backend: 'classic'` opts out of the environment override.
   const viaEnvironment =
-    projectServiceOptions.backend == null &&
+    projectServiceOptions.EXPERIMENTAL_backend == null &&
     process.env.TYPESCRIPT_ESLINT_BACKEND === 'tsgo' &&
     projectService !== false &&
     (projectService != null || !!tsestreeOptions.project);

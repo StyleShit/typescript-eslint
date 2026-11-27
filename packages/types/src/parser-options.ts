@@ -62,7 +62,7 @@ export interface ProjectServiceOptions {
    * - `'tsgo'`: TypeScript 7.1's native implementation (tsgo), over IPC
    * @default 'classic'
    */
-  backend?: TypeScriptBackend;
+  EXPERIMENTAL_backend?: TypeScriptBackend;
 
   /**
    * Path to a TSConfig to use instead of TypeScript's default project configuration.
