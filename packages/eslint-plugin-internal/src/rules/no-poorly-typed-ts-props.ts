@@ -46,7 +46,8 @@ export default createRule({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create(context) {
+  create: {
+    default(context) {
     const services = ESLintUtils.getParserServices(context);
 
     return {
@@ -91,5 +92,6 @@ export default createRule({
         }
       },
     };
+    },
   },
 });

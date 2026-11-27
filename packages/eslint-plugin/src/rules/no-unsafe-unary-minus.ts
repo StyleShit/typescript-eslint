@@ -23,39 +23,41 @@ export default util.createRule<Options, MessageIds>({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create(context) {
-    return {
-      UnaryExpression(node): void {
-        if (node.operator !== '-') {
-          return;
-        }
-        const services = util.getParserServices(context);
-        const argType = util.getConstrainedTypeAtLocation(
-          services,
-          node.argument,
-        );
-        const checker = services.program.getTypeChecker();
-        if (
-          tsutils
-            .unionConstituents(argType)
-            .some(
-              type =>
-                !tsutils.isTypeFlagSet(
-                  type,
-                  ts.TypeFlags.Any |
-                    ts.TypeFlags.Never |
-                    ts.TypeFlags.BigIntLike |
-                    ts.TypeFlags.NumberLike,
-                ),
-            )
-        ) {
-          context.report({
-            node,
-            messageId: 'unaryMinus',
-            data: { type: checker.typeToString(argType) },
-          });
-        }
-      },
-    };
+  create: {
+    default(context) {
+      return {
+        UnaryExpression(node): void {
+          if (node.operator !== '-') {
+            return;
+          }
+          const services = util.getParserServices(context);
+          const argType = util.getConstrainedTypeAtLocation(
+            services,
+            node.argument,
+          );
+          const checker = services.program.getTypeChecker();
+          if (
+            tsutils
+              .unionConstituents(argType)
+              .some(
+                type =>
+                  !tsutils.isTypeFlagSet(
+                    type,
+                    ts.TypeFlags.Any |
+                      ts.TypeFlags.Never |
+                      ts.TypeFlags.BigIntLike |
+                      ts.TypeFlags.NumberLike,
+                  ),
+              )
+          ) {
+            context.report({
+              node,
+              messageId: 'unaryMinus',
+              data: { type: checker.typeToString(argType) },
+            });
+          }
+        },
+      };
+    },
   },
 });

@@ -19,14 +19,42 @@ export type NamedCreateRuleMeta<
   docs: PluginDocs & RuleMetaDataDocs;
 } & Omit<RuleMetaData<MessageIds, PluginDocs, Options>, 'docs'>;
 
+export type RuleCreateWithOptions<
+  Options extends readonly unknown[],
+  MessageIds extends string,
+> = (
+  context: Readonly<RuleContext<MessageIds, Options>>,
+  optionsWithDefault: Readonly<Options>,
+) => RuleListener;
+
+/**
+ * Per-backend implementations of a rule. All of them share the rule's `meta`,
+ * so options, messages and reports must stay identical between backends.
+ */
+export interface RuleCreateByBackend<
+  Options extends readonly unknown[],
+  MessageIds extends string,
+> {
+  /**
+   * Runs on every backend that has no dedicated implementation.
+   * On tsgo it goes through the classic `ts.*` compatibility adapters.
+   */
+  default: RuleCreateWithOptions<Options, MessageIds>;
+  /**
+   * Runs when the file was parsed by the tsgo backend.
+   * A thunk so that the implementation (and anything it imports at runtime
+   * from `@typescript/native`) is only loaded once tsgo is actually in use.
+   */
+  tsgo?: () => RuleCreateWithOptions<Options, MessageIds>;
+}
+
 export interface RuleCreateAndOptions<
   Options extends readonly unknown[],
   MessageIds extends string,
 > {
-  create: (
-    context: Readonly<RuleContext<MessageIds, Options>>,
-    optionsWithDefault: Readonly<Options>,
-  ) => RuleListener;
+  create:
+    | RuleCreateByBackend<Options, MessageIds>
+    | RuleCreateWithOptions<Options, MessageIds>;
   /** @deprecated Use meta.defaultOptions instead */
   defaultOptions?: Readonly<Options>;
 }
@@ -114,18 +142,48 @@ function createRule<
   const resolvedDefaultOptions = (meta.defaultOptions ??
     defaultOptions ??
     []) as Readonly<Options>;
+  const selectCreate = createBackendSelector(create);
   return {
     create(context: Readonly<RuleContext<MessageIds, Options>>): RuleListener {
       const optionsWithDefault = applyDefault(
         resolvedDefaultOptions,
         context.options,
       );
-      return create(context, optionsWithDefault);
+      return selectCreate(context)(context, optionsWithDefault);
     },
     // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
     defaultOptions,
     meta,
     name,
+  };
+}
+
+function createBackendSelector<
+  Options extends readonly unknown[],
+  MessageIds extends string,
+>(
+  create: RuleCreateAndOptions<Options, MessageIds>['create'],
+): (
+  context: Readonly<RuleContext<MessageIds, Options>>,
+) => RuleCreateWithOptions<Options, MessageIds> {
+  if (typeof create === 'function') {
+    return () => create;
+  }
+
+  const { default: createDefault, tsgo: loadTsgo } = create;
+  if (!loadTsgo) {
+    return () => createDefault;
+  }
+
+  let createTsgo: RuleCreateWithOptions<Options, MessageIds> | undefined;
+  return context => {
+    // Read without getParserServices: non-type-aware rules must keep working
+    // with other parsers, which don't set a backend at all.
+    if (context.sourceCode.parserServices?.backend !== 'tsgo') {
+      return createDefault;
+    }
+    createTsgo ??= loadTsgo();
+    return createTsgo;
   };
 }
 

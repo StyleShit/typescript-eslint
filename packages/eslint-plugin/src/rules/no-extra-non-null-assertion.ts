@@ -18,25 +18,27 @@ export default createRule({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create(context) {
-    function checkExtraNonNullAssertion(
-      node: TSESTree.TSNonNullExpression,
-    ): void {
-      context.report({
-        node,
-        messageId: 'noExtraNonNullAssertion',
-        fix(fixer) {
-          return fixer.removeRange([node.range[1] - 1, node.range[1]]);
-        },
-      });
-    }
+  create: {
+    default(context) {
+      function checkExtraNonNullAssertion(
+        node: TSESTree.TSNonNullExpression,
+      ): void {
+        context.report({
+          node,
+          messageId: 'noExtraNonNullAssertion',
+          fix(fixer) {
+            return fixer.removeRange([node.range[1] - 1, node.range[1]]);
+          },
+        });
+      }
 
-    return {
-      'CallExpression[optional = true] > TSNonNullExpression.callee':
-        checkExtraNonNullAssertion,
-      'MemberExpression[optional = true] > TSNonNullExpression.object':
-        checkExtraNonNullAssertion,
-      'TSNonNullExpression > TSNonNullExpression': checkExtraNonNullAssertion,
-    };
+      return {
+        'CallExpression[optional = true] > TSNonNullExpression.callee':
+          checkExtraNonNullAssertion,
+        'MemberExpression[optional = true] > TSNonNullExpression.object':
+          checkExtraNonNullAssertion,
+        'TSNonNullExpression > TSNonNullExpression': checkExtraNonNullAssertion,
+      };
+    },
   },
 });

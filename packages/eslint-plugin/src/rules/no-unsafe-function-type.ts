@@ -22,30 +22,32 @@ export default createRule({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create(context) {
-    function checkBannedTypes(node: TSESTree.Node): void {
-      if (
-        node.type === AST_NODE_TYPES.Identifier &&
-        node.name === 'Function' &&
-        isReferenceToGlobalFunction('Function', node, context.sourceCode)
-      ) {
-        context.report({
-          node,
-          messageId: 'bannedFunctionType',
-        });
+  create: {
+    default(context) {
+      function checkBannedTypes(node: TSESTree.Node): void {
+        if (
+          node.type === AST_NODE_TYPES.Identifier &&
+          node.name === 'Function' &&
+          isReferenceToGlobalFunction('Function', node, context.sourceCode)
+        ) {
+          context.report({
+            node,
+            messageId: 'bannedFunctionType',
+          });
+        }
       }
-    }
 
-    return {
-      TSClassImplements(node): void {
-        checkBannedTypes(node.expression);
-      },
-      TSInterfaceHeritage(node): void {
-        checkBannedTypes(node.expression);
-      },
-      TSTypeReference(node): void {
-        checkBannedTypes(node.typeName);
-      },
-    };
+      return {
+        TSClassImplements(node): void {
+          checkBannedTypes(node.expression);
+        },
+        TSInterfaceHeritage(node): void {
+          checkBannedTypes(node.expression);
+        },
+        TSTypeReference(node): void {
+          checkBannedTypes(node.typeName);
+        },
+      };
+    },
   },
 });

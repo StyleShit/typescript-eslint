@@ -285,7 +285,7 @@ export function parseAndGenerateServices<
     if (!nativeParser) {
       const cause = getNativeBackendLoadError();
       throw new Error(
-        `The experimental tsgo backend could not be loaded${
+        `The tsgo backend could not be loaded${
           cause instanceof Error ? `: ${cause.message}` : ''
         }. Install a supported TypeScript 7.1 build aliased as @typescript/native.`,
         { cause },

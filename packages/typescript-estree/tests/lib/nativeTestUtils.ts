@@ -21,7 +21,7 @@ export const nativeFilePath = nativePath(nativeFixtures, 'file.ts');
 
 export function isolateNativeBackend(): void {
   beforeEach(() => {
-    vi.stubEnv('TYPESCRIPT_ESLINT_EXPERIMENTAL_BACKEND', 'classic');
+    vi.stubEnv('TYPESCRIPT_ESLINT_BACKEND', 'classic');
   });
   afterEach(clearCaches);
 }
@@ -42,7 +42,7 @@ export function parseOnBackend(
 ): NativeQueryContext {
   const { ast, services } = parseAndGenerateServices(code, {
     filePath,
-    projectService: native ? { EXPERIMENTAL_backend: 'tsgo' } : true,
+    projectService: native ? { backend: 'tsgo' } : true,
   });
   assert.isNotNull(services.program);
   return {

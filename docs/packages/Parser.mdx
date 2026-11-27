@@ -351,9 +351,9 @@ This option brings two main benefits over the older `project`:
 
 See [FAQs > Typed Linting > Project Service Issues](../troubleshooting/typed-linting/index.mdx#project-service-issues) for help on working with the project service.
 
-#### Experimental tsgo backend
+#### tsgo backend
 
-The parser includes an experimental backend for tsgo, TypeScript >=7.1's native implementation.
+The parser includes a backend for tsgo, TypeScript >=7.1's native implementation.
 It requires a Node.js version that can `require()` ES modules (20.19, 22.12, or newer) and a side-by-side installation of classic TypeScript 6 and a TypeScript 7.1 nightly aliased as `@typescript/native`.
 The nightly must be at least `7.1.0-dev.20261009.1`:
 
@@ -361,7 +361,7 @@ The nightly must be at least `7.1.0-dev.20261009.1`:
 pnpm add --save-dev typescript@^6 @typescript/native@npm:typescript@7.1.0-dev.20261009.1
 ```
 
-Select the tsgo backend by specifying it as `projectService.EXPERIMENTAL_backend`:
+Select the tsgo backend by specifying it as `projectService.backend`:
 
 ```js
 import parser from '@typescript-eslint/parser';
@@ -373,7 +373,7 @@ export default [
       parser,
       parserOptions: {
         projectService: {
-          EXPERIMENTAL_backend: 'tsgo',
+          backend: 'tsgo',
         },
       },
     },
@@ -429,11 +429,11 @@ There are several restrictions on this option to prevent it from being overused:
 - `**` is not allowed in globs passed to it
 - Files that match `allowDefaultProject` may not also be included in their nearest `tsconfig.json`
 
-##### `EXPERIMENTAL_backend`
+##### `backend`
 
 > Default: `undefined` _(the classic TypeScript backend)_
 
-Set to `'tsgo'` to opt in to the experimental tsgo backend described [above](#experimental-tsgo-backend).
+Set to `'tsgo'` to opt in to the tsgo backend described [above](#tsgo-backend).
 
 ##### `defaultProject`
 

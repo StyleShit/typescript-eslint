@@ -18,7 +18,7 @@ import {
 const ROOT_DIR = path.posix.join(
   ...path
     .relative(
-      process.env.TYPESCRIPT_ESLINT_EXPERIMENTAL_BACKEND === 'tsgo'
+      process.env.TYPESCRIPT_ESLINT_BACKEND === 'tsgo'
         ? path.join(__dirname, 'fixtures')
         : process.cwd(),
       path.join(__dirname, '..'),

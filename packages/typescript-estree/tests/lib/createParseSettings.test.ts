@@ -36,7 +36,7 @@ describe(createParseSettings, () => {
       createProjectService.mockClear();
       // These assertions are about the classic project service, so the blanket
       // tsgo switch has to stay out of the way.
-      vi.stubEnv('TYPESCRIPT_ESLINT_EXPERIMENTAL_BACKEND', 'classic');
+      vi.stubEnv('TYPESCRIPT_ESLINT_BACKEND', 'classic');
     });
 
     afterEach(() => {
@@ -116,7 +116,7 @@ describe(createParseSettings, () => {
         {
           projectService: {
             defaultProject: 'tsconfig.eslint.json',
-            EXPERIMENTAL_backend: 'tsgo' as const,
+            backend: 'tsgo' as const,
           },
         },
         'defaultProject',
@@ -125,7 +125,7 @@ describe(createParseSettings, () => {
       expect(() =>
         createParseSettings('', {
           filePath: '/project/file.ts',
-          projectService: { EXPERIMENTAL_backend: 'tsgo' },
+          projectService: { backend: 'tsgo' },
           ...options,
         }),
       ).toThrow(identifyingTerm);
@@ -139,7 +139,7 @@ describe(createParseSettings, () => {
     ])('selects the tsgo backend for %s', (_name, options) => {
       const parseSettings = createParseSettings('', {
         filePath: '/project/file.ts',
-        projectService: { EXPERIMENTAL_backend: 'tsgo', ...options },
+        projectService: { backend: 'tsgo', ...options },
       });
 
       expect(parseSettings.backend).toBe('tsgo');
@@ -148,11 +148,11 @@ describe(createParseSettings, () => {
     });
 
     describe.runIf(process.features.require_module)(
-      'TYPESCRIPT_ESLINT_EXPERIMENTAL_BACKEND',
+      'TYPESCRIPT_ESLINT_BACKEND',
       () => {
         beforeEach(() => {
           clearBackendFallbackWarning();
-          vi.stubEnv('TYPESCRIPT_ESLINT_EXPERIMENTAL_BACKEND', 'tsgo');
+          vi.stubEnv('TYPESCRIPT_ESLINT_BACKEND', 'tsgo');
           vi.stubEnv('TYPESCRIPT_ESLINT_PROJECT_SERVICE', 'true');
         });
 
@@ -169,7 +169,7 @@ describe(createParseSettings, () => {
           createParseSettings('', options);
 
           expect(loggerFn).toHaveBeenCalledExactlyOnceWith(
-            'WARNING: TYPESCRIPT_ESLINT_EXPERIMENTAL_BACKEND=tsgo is set, but some files are being linted with the classic backend. extraFileExtensions is not supported by the experimental tsgo backend.',
+            'WARNING: TYPESCRIPT_ESLINT_BACKEND=tsgo is set, but some files are being linted with the classic backend. extraFileExtensions is not supported by the tsgo backend.',
           );
         });
 
@@ -245,15 +245,15 @@ describe(createParseSettings, () => {
           expect(() =>
             createParseSettings('', {
               filePath: '/project/file.ts',
-              projectService: { EXPERIMENTAL_backend: 'tsgo' },
+              projectService: { backend: 'tsgo' },
             }),
           ).toThrow(
-            'The experimental tsgo backend requires classic TypeScript 6',
+            'The tsgo backend requires classic TypeScript 6',
           );
         });
 
         it('falls back to the classic backend for the environment variable', () => {
-          vi.stubEnv('TYPESCRIPT_ESLINT_EXPERIMENTAL_BACKEND', 'tsgo');
+          vi.stubEnv('TYPESCRIPT_ESLINT_BACKEND', 'tsgo');
 
           const parseSettings = createParseSettings('', {
             filePath: '/project/file.ts',
@@ -277,7 +277,7 @@ describe(createParseSettings, () => {
     it.runIf(process.features.require_module)(
       'accepts a null projectService with the environment variable',
       () => {
-        vi.stubEnv('TYPESCRIPT_ESLINT_EXPERIMENTAL_BACKEND', 'tsgo');
+        vi.stubEnv('TYPESCRIPT_ESLINT_BACKEND', 'tsgo');
 
         const parseSettings = createParseSettings('', {
           filePath: '/project/file.ts',
@@ -299,10 +299,10 @@ describe(createParseSettings, () => {
         expect(() =>
           createParseSettings('', {
             filePath: '/project/file.ts',
-            projectService: { EXPERIMENTAL_backend: 'tsgo' },
+            projectService: { backend: 'tsgo' },
           }),
         ).toThrow(
-          'The experimental tsgo backend requires classic TypeScript 6.0',
+          'The tsgo backend requires classic TypeScript 6.0',
         );
       },
     );
@@ -317,10 +317,10 @@ describe(createParseSettings, () => {
         expect(() =>
           createParseSettings('', {
             filePath: '/project/file.ts',
-            projectService: { EXPERIMENTAL_backend: 'tsgo' },
+            projectService: { backend: 'tsgo' },
           }),
         ).toThrow(
-          'The experimental tsgo backend requires a Node.js version that can require() ES modules: 20.19, 22.12, or newer.',
+          'The tsgo backend requires a Node.js version that can require() ES modules: 20.19, 22.12, or newer.',
         );
       },
     );

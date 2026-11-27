@@ -8,7 +8,9 @@ export {
 export type { NodeWithParent } from '@typescript-eslint/types';
 
 export type {
+  NativeParserServices,
   ParserServices,
+  ParserServicesWithNativeTypeInformation,
   ParserServicesWithoutTypeInformation,
   ParserServicesWithTypeInformation,
 } from '@typescript-eslint/typescript-estree';

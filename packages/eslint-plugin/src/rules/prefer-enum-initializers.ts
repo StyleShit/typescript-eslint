@@ -23,49 +23,51 @@ export default createRule<[], MessageIds>({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create(context) {
-    function TSEnumDeclaration(node: TSESTree.TSEnumDeclaration): void {
-      const { members } = node.body;
+  create: {
+    default(context) {
+      function TSEnumDeclaration(node: TSESTree.TSEnumDeclaration): void {
+        const { members } = node.body;
 
-      members.forEach((member, index) => {
-        if (member.initializer == null) {
-          const name = context.sourceCode.getText(member);
-          context.report({
-            node: member,
-            messageId: 'defineInitializer',
-            data: {
-              name,
-            },
-            suggest: [
-              {
-                messageId: 'defineInitializerSuggestion',
-                data: { name, suggested: index },
-                fix: (fixer): TSESLint.RuleFix => {
-                  return fixer.replaceText(member, `${name} = ${index}`);
-                },
+        members.forEach((member, index) => {
+          if (member.initializer == null) {
+            const name = context.sourceCode.getText(member);
+            context.report({
+              node: member,
+              messageId: 'defineInitializer',
+              data: {
+                name,
               },
-              {
-                messageId: 'defineInitializerSuggestion',
-                data: { name, suggested: index + 1 },
-                fix: (fixer): TSESLint.RuleFix => {
-                  return fixer.replaceText(member, `${name} = ${index + 1}`);
+              suggest: [
+                {
+                  messageId: 'defineInitializerSuggestion',
+                  data: { name, suggested: index },
+                  fix: (fixer): TSESLint.RuleFix => {
+                    return fixer.replaceText(member, `${name} = ${index}`);
+                  },
                 },
-              },
-              {
-                messageId: 'defineInitializerSuggestion',
-                data: { name, suggested: `'${name}'` },
-                fix: (fixer): TSESLint.RuleFix => {
-                  return fixer.replaceText(member, `${name} = '${name}'`);
+                {
+                  messageId: 'defineInitializerSuggestion',
+                  data: { name, suggested: index + 1 },
+                  fix: (fixer): TSESLint.RuleFix => {
+                    return fixer.replaceText(member, `${name} = ${index + 1}`);
+                  },
                 },
-              },
-            ],
-          });
-        }
-      });
-    }
+                {
+                  messageId: 'defineInitializerSuggestion',
+                  data: { name, suggested: `'${name}'` },
+                  fix: (fixer): TSESLint.RuleFix => {
+                    return fixer.replaceText(member, `${name} = '${name}'`);
+                  },
+                },
+              ],
+            });
+          }
+        });
+      }
 
-    return {
-      TSEnumDeclaration,
-    };
+      return {
+        TSEnumDeclaration,
+      };
+    },
   },
 });

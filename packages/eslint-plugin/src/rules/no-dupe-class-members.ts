@@ -30,30 +30,34 @@ export default createRule<Options, MessageIds>({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create(context) {
-    const rules = baseRule.create(context);
+  create: {
+    default(context) {
+      const rules = baseRule.create(context);
 
-    function wrapMemberDefinitionListener<
-      N extends TSESTree.MethodDefinition | TSESTree.PropertyDefinition,
-    >(coreListener: (node: N) => void): (node: N) => void {
-      return (node: N): void => {
-        if (node.computed) {
-          return;
-        }
+      function wrapMemberDefinitionListener<
+        N extends TSESTree.MethodDefinition | TSESTree.PropertyDefinition,
+      >(coreListener: (node: N) => void): (node: N) => void {
+        return (node: N): void => {
+          if (node.computed) {
+            return;
+          }
 
-        if (node.value?.type === AST_NODE_TYPES.TSEmptyBodyFunctionExpression) {
-          return;
-        }
+          if (
+            node.value?.type === AST_NODE_TYPES.TSEmptyBodyFunctionExpression
+          ) {
+            return;
+          }
 
-        return coreListener(node);
+          return coreListener(node);
+        };
+      }
+
+      return {
+        ...rules,
+        'MethodDefinition, PropertyDefinition': wrapMemberDefinitionListener(
+          rules['MethodDefinition, PropertyDefinition'],
+        ),
       };
-    }
-
-    return {
-      ...rules,
-      'MethodDefinition, PropertyDefinition': wrapMemberDefinitionListener(
-        rules['MethodDefinition, PropertyDefinition'],
-      ),
-    };
+    },
   },
 });

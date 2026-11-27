@@ -294,11 +294,12 @@ function resolveBackend(tsestreeOptions: Partial<TSESTreeOptions>) {
   const { projectService } = tsestreeOptions;
   const projectServiceOptions =
     projectService && typeof projectService === 'object' ? projectService : {};
-  const requested = projectServiceOptions.EXPERIMENTAL_backend === 'tsgo';
+  const requested = projectServiceOptions.backend === 'tsgo';
 
+  // An explicit `backend: 'classic'` opts out of the environment override.
   const viaEnvironment =
-    !requested &&
-    process.env.TYPESCRIPT_ESLINT_EXPERIMENTAL_BACKEND === 'tsgo' &&
+    projectServiceOptions.backend == null &&
+    process.env.TYPESCRIPT_ESLINT_BACKEND === 'tsgo' &&
     projectService !== false &&
     (projectService != null || !!tsestreeOptions.project);
 
@@ -312,11 +313,11 @@ function resolveBackend(tsestreeOptions: Partial<TSESTreeOptions>) {
     viaEnvironment,
   );
   const unsupportedReason = !process.features.require_module
-    ? 'The experimental tsgo backend requires a Node.js version that can require() ES modules: 20.19, 22.12, or newer.'
+    ? 'The tsgo backend requires a Node.js version that can require() ES modules: 20.19, 22.12, or newer.'
     : !typescriptVersionIsAtLeast['6.0'] || typescriptVersionIsAtLeast['6.1']
-      ? `The experimental tsgo backend requires classic TypeScript 6.0, but found ${ts.version}.`
+      ? `The tsgo backend requires classic TypeScript 6.0, but found ${ts.version}.`
       : unsupportedOption &&
-        `${unsupportedOption} is not supported by the experimental tsgo backend.`;
+        `${unsupportedOption} is not supported by the tsgo backend.`;
 
   if (!unsupportedReason) {
     return { backend: 'tsgo' } as const;
@@ -346,7 +347,7 @@ function warnAboutBackendFallback(
     (typeof process === 'undefined' ? false : process.stdout?.isTTY)
   ) {
     parseSettings.log(
-      `WARNING: TYPESCRIPT_ESLINT_EXPERIMENTAL_BACKEND=tsgo is set, but some files are being linted with the classic backend. ${fallbackReason}`,
+      `WARNING: TYPESCRIPT_ESLINT_BACKEND=tsgo is set, but some files are being linted with the classic backend. ${fallbackReason}`,
     );
   }
 

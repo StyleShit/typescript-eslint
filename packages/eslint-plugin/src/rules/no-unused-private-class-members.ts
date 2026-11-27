@@ -25,37 +25,39 @@ export default createRule<Options, MessageIds>({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create(context) {
-    return {
-      'Program:exit'(node) {
-        const result = analyzeClassMemberUsage(
-          node,
-          ESLintUtils.nullThrows(
-            context.sourceCode.scopeManager,
-            'Missing required scope manager',
-          ),
-        );
+  create: {
+    default(context) {
+      return {
+        'Program:exit'(node) {
+          const result = analyzeClassMemberUsage(
+            node,
+            ESLintUtils.nullThrows(
+              context.sourceCode.scopeManager,
+              'Missing required scope manager',
+            ),
+          );
 
-        for (const classScope of result.values()) {
-          for (const member of [
-            ...classScope.members.instance.values(),
-            ...classScope.members.static.values(),
-          ]) {
-            if (
-              (!member.isPrivate() && !member.isHashPrivate()) ||
-              member.isUsed()
-            ) {
-              continue;
+          for (const classScope of result.values()) {
+            for (const member of [
+              ...classScope.members.instance.values(),
+              ...classScope.members.static.values(),
+            ]) {
+              if (
+                (!member.isPrivate() && !member.isHashPrivate()) ||
+                member.isUsed()
+              ) {
+                continue;
+              }
+
+              context.report({
+                node: member.nameNode,
+                messageId: 'unusedPrivateClassMember',
+                data: { classMemberName: member.name },
+              });
             }
-
-            context.report({
-              node: member.nameNode,
-              messageId: 'unusedPrivateClassMember',
-              data: { classMemberName: member.name },
-            });
           }
-        }
-      },
-    };
+        },
+      };
+    },
   },
 });

@@ -82,103 +82,105 @@ export default createRule<Options, MessageIds>({
       allowThrowingUnknown: true,
     },
   ],
-  create(context, [options]) {
-    const services = getParserServices(context);
-    const allow = options.allow;
+  create: {
+    default(context, [options]) {
+      const services = getParserServices(context);
+      const allow = options.allow;
 
-    function isRethrownError(node: TSESTree.Node): boolean {
-      if (node.type !== AST_NODE_TYPES.Identifier) {
-        return false;
-      }
+      function isRethrownError(node: TSESTree.Node): boolean {
+        if (node.type !== AST_NODE_TYPES.Identifier) {
+          return false;
+        }
 
-      const scope = context.sourceCode.getScope(node);
+        const scope = context.sourceCode.getScope(node);
 
-      const smVariable = nullThrows(
-        findVariable(scope, node),
-        `Variable ${node.name} should exist in scope manager`,
-      );
+        const smVariable = nullThrows(
+          findVariable(scope, node),
+          `Variable ${node.name} should exist in scope manager`,
+        );
 
-      const variableDefinitions = smVariable.defs.filter(
-        def => def.isVariableDefinition,
-      );
-      if (variableDefinitions.length !== 1) {
-        return false;
-      }
-      const def = smVariable.defs[0];
+        const variableDefinitions = smVariable.defs.filter(
+          def => def.isVariableDefinition,
+        );
+        if (variableDefinitions.length !== 1) {
+          return false;
+        }
+        const def = smVariable.defs[0];
 
-      // try { /* ... */ } catch (x) { throw x; }
-      if (def.node.type === AST_NODE_TYPES.CatchClause) {
-        return true;
-      }
+        // try { /* ... */ } catch (x) { throw x; }
+        if (def.node.type === AST_NODE_TYPES.CatchClause) {
+          return true;
+        }
 
-      // promise.catch(x => { throw x; })
-      // promise.then(onFulfilled, x => { throw x; })
-      if (
-        def.node.type === AST_NODE_TYPES.ArrowFunctionExpression &&
-        def.node.params.length >= 1 &&
-        def.node.params[0] === def.name &&
-        def.node.parent.type === AST_NODE_TYPES.CallExpression
-      ) {
-        const callExpression = def.node.parent;
+        // promise.catch(x => { throw x; })
+        // promise.then(onFulfilled, x => { throw x; })
+        if (
+          def.node.type === AST_NODE_TYPES.ArrowFunctionExpression &&
+          def.node.params.length >= 1 &&
+          def.node.params[0] === def.name &&
+          def.node.parent.type === AST_NODE_TYPES.CallExpression
+        ) {
+          const callExpression = def.node.parent;
 
-        const parsedPromiseHandlingCall =
-          parseCatchCall(callExpression, context) ??
-          parseThenCall(callExpression, context);
-        if (parsedPromiseHandlingCall != null) {
-          const { object, onRejected } = parsedPromiseHandlingCall;
-          if (onRejected === def.node) {
-            const tsObjectNode = services.esTreeNodeToTSNodeMap.get(
-              object,
-            ) as ts.Expression;
+          const parsedPromiseHandlingCall =
+            parseCatchCall(callExpression, context) ??
+            parseThenCall(callExpression, context);
+          if (parsedPromiseHandlingCall != null) {
+            const { object, onRejected } = parsedPromiseHandlingCall;
+            if (onRejected === def.node) {
+              const tsObjectNode = services.esTreeNodeToTSNodeMap.get(
+                object,
+              ) as ts.Expression;
 
-            // make sure we're actually dealing with a promise
-            if (
-              isThenableType(services.program.getTypeChecker(), tsObjectNode)
-            ) {
-              return true;
+              // make sure we're actually dealing with a promise
+              if (
+                isThenableType(services.program.getTypeChecker(), tsObjectNode)
+              ) {
+                return true;
+              }
             }
           }
         }
+
+        return false;
       }
 
-      return false;
-    }
+      function checkThrowArgument(node: TSESTree.Node): void {
+        if (options.allowRethrowing && isRethrownError(node)) {
+          return;
+        }
 
-    function checkThrowArgument(node: TSESTree.Node): void {
-      if (options.allowRethrowing && isRethrownError(node)) {
-        return;
+        const type = services.getTypeAtLocation(node);
+
+        if (typeMatchesSomeSpecifier(type, allow, services.program)) {
+          return;
+        }
+
+        if (tsutils.isTypeFlagSet(type, ts.TypeFlags.Undefined)) {
+          context.report({ node, messageId: 'undef' });
+          return;
+        }
+
+        if (options.allowThrowingAny && isTypeAnyType(type)) {
+          return;
+        }
+
+        if (options.allowThrowingUnknown && isTypeUnknownType(type)) {
+          return;
+        }
+
+        if (isErrorLike(services.program, type)) {
+          return;
+        }
+
+        context.report({ node, messageId: 'object' });
       }
 
-      const type = services.getTypeAtLocation(node);
-
-      if (typeMatchesSomeSpecifier(type, allow, services.program)) {
-        return;
-      }
-
-      if (tsutils.isTypeFlagSet(type, ts.TypeFlags.Undefined)) {
-        context.report({ node, messageId: 'undef' });
-        return;
-      }
-
-      if (options.allowThrowingAny && isTypeAnyType(type)) {
-        return;
-      }
-
-      if (options.allowThrowingUnknown && isTypeUnknownType(type)) {
-        return;
-      }
-
-      if (isErrorLike(services.program, type)) {
-        return;
-      }
-
-      context.report({ node, messageId: 'object' });
-    }
-
-    return {
-      ThrowStatement(node): void {
-        checkThrowArgument(node.argument);
-      },
-    };
+      return {
+        ThrowStatement(node): void {
+          checkThrowArgument(node.argument);
+        },
+      };
+    },
   },
 });

@@ -31,90 +31,92 @@ export default createRule<[], MessageIds>({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create(context) {
-    return {
-      TSNonNullExpression(node): void {
-        const suggest: TSESLint.ReportSuggestionArray<MessageIds> = [];
+  create: {
+    default(context) {
+      return {
+        TSNonNullExpression(node): void {
+          const suggest: TSESLint.ReportSuggestionArray<MessageIds> = [];
 
-        // it always exists in non-null assertion
-        const nonNullOperator = nullThrows(
-          context.sourceCode.getTokenAfter(
-            node.expression,
-            isNonNullAssertionPunctuator,
-          ),
-          NullThrowsReasons.MissingToken('!', 'expression'),
-        );
+          // it always exists in non-null assertion
+          const nonNullOperator = nullThrows(
+            context.sourceCode.getTokenAfter(
+              node.expression,
+              isNonNullAssertionPunctuator,
+            ),
+            NullThrowsReasons.MissingToken('!', 'expression'),
+          );
 
-        function replaceTokenWithOptional(): TSESLint.ReportFixFunction {
-          return fixer => fixer.replaceText(nonNullOperator, '?.');
-        }
+          function replaceTokenWithOptional(): TSESLint.ReportFixFunction {
+            return fixer => fixer.replaceText(nonNullOperator, '?.');
+          }
 
-        function removeToken(): TSESLint.ReportFixFunction {
-          return fixer => fixer.remove(nonNullOperator);
-        }
+          function removeToken(): TSESLint.ReportFixFunction {
+            return fixer => fixer.remove(nonNullOperator);
+          }
 
-        if (
-          node.parent.type === AST_NODE_TYPES.MemberExpression &&
-          node.parent.object === node &&
-          !isAssignee(node.parent)
-        ) {
-          if (!node.parent.optional) {
-            if (node.parent.computed) {
-              // it is x![y]?.z
+          if (
+            node.parent.type === AST_NODE_TYPES.MemberExpression &&
+            node.parent.object === node &&
+            !isAssignee(node.parent)
+          ) {
+            if (!node.parent.optional) {
+              if (node.parent.computed) {
+                // it is x![y]?.z
+                suggest.push({
+                  messageId: 'suggestOptionalChain',
+                  fix: replaceTokenWithOptional(),
+                });
+              } else {
+                // it is x!.y?.z
+                suggest.push({
+                  messageId: 'suggestOptionalChain',
+                  fix(fixer) {
+                    // x!.y?.z
+                    //   ^ punctuator
+                    const punctuator = nullThrows(
+                      context.sourceCode.getTokenAfter(nonNullOperator),
+                      NullThrowsReasons.MissingToken('.', '!'),
+                    );
+                    return [
+                      fixer.remove(nonNullOperator),
+                      fixer.insertTextBefore(punctuator, '?'),
+                    ];
+                  },
+                });
+              }
+            } else {
+              // it is x!?.[y].z or  x!?.y.z
+              suggest.push({
+                messageId: 'suggestOptionalChain',
+                fix: removeToken(),
+              });
+            }
+          } else if (
+            node.parent.type === AST_NODE_TYPES.CallExpression &&
+            node.parent.callee === node
+          ) {
+            if (!node.parent.optional) {
+              // it is x.y?.z!()
               suggest.push({
                 messageId: 'suggestOptionalChain',
                 fix: replaceTokenWithOptional(),
               });
             } else {
-              // it is x!.y?.z
+              // it is x.y.z!?.()
               suggest.push({
                 messageId: 'suggestOptionalChain',
-                fix(fixer) {
-                  // x!.y?.z
-                  //   ^ punctuator
-                  const punctuator = nullThrows(
-                    context.sourceCode.getTokenAfter(nonNullOperator),
-                    NullThrowsReasons.MissingToken('.', '!'),
-                  );
-                  return [
-                    fixer.remove(nonNullOperator),
-                    fixer.insertTextBefore(punctuator, '?'),
-                  ];
-                },
+                fix: removeToken(),
               });
             }
-          } else {
-            // it is x!?.[y].z or  x!?.y.z
-            suggest.push({
-              messageId: 'suggestOptionalChain',
-              fix: removeToken(),
-            });
           }
-        } else if (
-          node.parent.type === AST_NODE_TYPES.CallExpression &&
-          node.parent.callee === node
-        ) {
-          if (!node.parent.optional) {
-            // it is x.y?.z!()
-            suggest.push({
-              messageId: 'suggestOptionalChain',
-              fix: replaceTokenWithOptional(),
-            });
-          } else {
-            // it is x.y.z!?.()
-            suggest.push({
-              messageId: 'suggestOptionalChain',
-              fix: removeToken(),
-            });
-          }
-        }
 
-        context.report({
-          node,
-          messageId: 'noNonNull',
-          suggest,
-        });
-      },
-    };
+          context.report({
+            node,
+            messageId: 'noNonNull',
+            suggest,
+          });
+        },
+      };
+    },
   },
 });

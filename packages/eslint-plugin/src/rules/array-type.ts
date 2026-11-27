@@ -142,157 +142,159 @@ export default createRule<Options, MessageIds>({
       default: 'array',
     },
   ],
-  create(context, [options]) {
-    const defaultOption = options.default;
-    const readonlyOption = options.readonly ?? defaultOption;
+  create: {
+    default(context, [options]) {
+      const defaultOption = options.default;
+      const readonlyOption = options.readonly ?? defaultOption;
 
-    /**
-     * @param node the node to be evaluated.
-     */
-    function getMessageType(node: TSESTree.Node): string {
-      if (isSimpleType(node)) {
-        return context.sourceCode.getText(node);
+      /**
+       * @param node the node to be evaluated.
+       */
+      function getMessageType(node: TSESTree.Node): string {
+        if (isSimpleType(node)) {
+          return context.sourceCode.getText(node);
+        }
+        return 'T';
       }
-      return 'T';
-    }
 
-    return {
-      TSArrayType(node): void {
-        const isReadonly =
-          node.parent.type === AST_NODE_TYPES.TSTypeOperator &&
-          node.parent.operator === 'readonly';
+      return {
+        TSArrayType(node): void {
+          const isReadonly =
+            node.parent.type === AST_NODE_TYPES.TSTypeOperator &&
+            node.parent.operator === 'readonly';
 
-        const currentOption = isReadonly ? readonlyOption : defaultOption;
+          const currentOption = isReadonly ? readonlyOption : defaultOption;
 
-        if (
-          currentOption === 'array' ||
-          (currentOption === 'array-simple' && isSimpleType(node.elementType))
-        ) {
-          return;
-        }
-
-        const messageId =
-          currentOption === 'generic'
-            ? 'errorStringGeneric'
-            : 'errorStringGenericSimple';
-        const errorNode = isReadonly ? node.parent : node;
-
-        context.report({
-          node: errorNode,
-          messageId,
-          data: {
-            type: getMessageType(node.elementType),
-            className: isReadonly ? 'ReadonlyArray' : 'Array',
-            readonlyPrefix: isReadonly ? 'readonly ' : '',
-          },
-          fix(fixer) {
-            const typeNode = node.elementType;
-            const arrayType = isReadonly ? 'ReadonlyArray' : 'Array';
-
-            return [
-              fixer.replaceTextRange(
-                [errorNode.range[0], typeNode.range[0]],
-                `${arrayType}<`,
-              ),
-              fixer.replaceTextRange(
-                [typeNode.range[1], errorNode.range[1]],
-                '>',
-              ),
-            ];
-          },
-        });
-      },
-
-      TSTypeReference(node): void {
-        if (
-          node.typeName.type !== AST_NODE_TYPES.Identifier ||
-          !(
-            node.typeName.name === 'Array' ||
-            node.typeName.name === 'ReadonlyArray' ||
-            node.typeName.name === 'Readonly'
-          ) ||
-          (node.typeName.name === 'Readonly' &&
-            node.typeArguments?.params[0].type !== AST_NODE_TYPES.TSArrayType)
-        ) {
-          return;
-        }
-
-        for (
-          let scope = context.sourceCode.getScope(node);
-          scope.upper;
-          scope = scope.upper
-        ) {
-          if (scope.set.has(node.typeName.name)) {
+          if (
+            currentOption === 'array' ||
+            (currentOption === 'array-simple' && isSimpleType(node.elementType))
+          ) {
             return;
           }
-        }
 
-        const isReadonlyWithGenericArrayType =
-          node.typeName.name === 'Readonly' &&
-          node.typeArguments?.params[0].type === AST_NODE_TYPES.TSArrayType;
-        const isReadonlyArrayType =
-          node.typeName.name === 'ReadonlyArray' ||
-          isReadonlyWithGenericArrayType;
+          const messageId =
+            currentOption === 'generic'
+              ? 'errorStringGeneric'
+              : 'errorStringGenericSimple';
+          const errorNode = isReadonly ? node.parent : node;
 
-        const currentOption = isReadonlyArrayType
-          ? readonlyOption
-          : defaultOption;
+          context.report({
+            node: errorNode,
+            messageId,
+            data: {
+              type: getMessageType(node.elementType),
+              className: isReadonly ? 'ReadonlyArray' : 'Array',
+              readonlyPrefix: isReadonly ? 'readonly ' : '',
+            },
+            fix(fixer) {
+              const typeNode = node.elementType;
+              const arrayType = isReadonly ? 'ReadonlyArray' : 'Array';
 
-        if (currentOption === 'generic') {
-          return;
-        }
+              return [
+                fixer.replaceTextRange(
+                  [errorNode.range[0], typeNode.range[0]],
+                  `${arrayType}<`,
+                ),
+                fixer.replaceTextRange(
+                  [typeNode.range[1], errorNode.range[1]],
+                  '>',
+                ),
+              ];
+            },
+          });
+        },
 
-        const readonlyPrefix = isReadonlyArrayType ? 'readonly ' : '';
-        const typeParams = node.typeArguments?.params;
-        const messageId =
-          currentOption === 'array'
-            ? isReadonlyWithGenericArrayType
-              ? 'errorStringArrayReadonly'
-              : 'errorStringArray'
-            : isReadonlyArrayType && node.typeName.name !== 'ReadonlyArray'
-              ? 'errorStringArraySimpleReadonly'
-              : 'errorStringArraySimple';
+        TSTypeReference(node): void {
+          if (
+            node.typeName.type !== AST_NODE_TYPES.Identifier ||
+            !(
+              node.typeName.name === 'Array' ||
+              node.typeName.name === 'ReadonlyArray' ||
+              node.typeName.name === 'Readonly'
+            ) ||
+            (node.typeName.name === 'Readonly' &&
+              node.typeArguments?.params[0].type !== AST_NODE_TYPES.TSArrayType)
+          ) {
+            return;
+          }
 
-        if (!typeParams) {
-          return;
-        }
+          for (
+            let scope = context.sourceCode.getScope(node);
+            scope.upper;
+            scope = scope.upper
+          ) {
+            if (scope.set.has(node.typeName.name)) {
+              return;
+            }
+          }
 
-        if (
-          typeParams.length !== 1 ||
-          (currentOption === 'array-simple' && !isSimpleType(typeParams[0]))
-        ) {
-          return;
-        }
+          const isReadonlyWithGenericArrayType =
+            node.typeName.name === 'Readonly' &&
+            node.typeArguments?.params[0].type === AST_NODE_TYPES.TSArrayType;
+          const isReadonlyArrayType =
+            node.typeName.name === 'ReadonlyArray' ||
+            isReadonlyWithGenericArrayType;
 
-        const type = typeParams[0];
-        const typeParens = typeNeedsParentheses(type);
-        const parentParens =
-          readonlyPrefix &&
-          (node.parent.type === AST_NODE_TYPES.TSArrayType ||
-            (node.parent.type === AST_NODE_TYPES.TSIndexedAccessType &&
-              node.parent.objectType === node)) &&
-          !isParenthesized(node, context.sourceCode);
+          const currentOption = isReadonlyArrayType
+            ? readonlyOption
+            : defaultOption;
 
-        const start = `${parentParens ? '(' : ''}${readonlyPrefix}${
-          typeParens ? '(' : ''
-        }`;
-        const end = `${typeParens ? ')' : ''}${isReadonlyWithGenericArrayType ? '' : `[]`}${parentParens ? ')' : ''}`;
-        context.report({
-          node,
-          messageId,
-          data: {
-            type: getMessageType(type),
-            className: isReadonlyArrayType ? node.typeName.name : 'Array',
-            readonlyPrefix,
-          },
-          fix(fixer) {
-            return [
-              fixer.replaceTextRange([node.range[0], type.range[0]], start),
-              fixer.replaceTextRange([type.range[1], node.range[1]], end),
-            ];
-          },
-        });
-      },
-    };
+          if (currentOption === 'generic') {
+            return;
+          }
+
+          const readonlyPrefix = isReadonlyArrayType ? 'readonly ' : '';
+          const typeParams = node.typeArguments?.params;
+          const messageId =
+            currentOption === 'array'
+              ? isReadonlyWithGenericArrayType
+                ? 'errorStringArrayReadonly'
+                : 'errorStringArray'
+              : isReadonlyArrayType && node.typeName.name !== 'ReadonlyArray'
+                ? 'errorStringArraySimpleReadonly'
+                : 'errorStringArraySimple';
+
+          if (!typeParams) {
+            return;
+          }
+
+          if (
+            typeParams.length !== 1 ||
+            (currentOption === 'array-simple' && !isSimpleType(typeParams[0]))
+          ) {
+            return;
+          }
+
+          const type = typeParams[0];
+          const typeParens = typeNeedsParentheses(type);
+          const parentParens =
+            readonlyPrefix &&
+            (node.parent.type === AST_NODE_TYPES.TSArrayType ||
+              (node.parent.type === AST_NODE_TYPES.TSIndexedAccessType &&
+                node.parent.objectType === node)) &&
+            !isParenthesized(node, context.sourceCode);
+
+          const start = `${parentParens ? '(' : ''}${readonlyPrefix}${
+            typeParens ? '(' : ''
+          }`;
+          const end = `${typeParens ? ')' : ''}${isReadonlyWithGenericArrayType ? '' : `[]`}${parentParens ? ')' : ''}`;
+          context.report({
+            node,
+            messageId,
+            data: {
+              type: getMessageType(type),
+              className: isReadonlyArrayType ? node.typeName.name : 'Array',
+              readonlyPrefix,
+            },
+            fix(fixer) {
+              return [
+                fixer.replaceTextRange([node.range[0], type.range[0]], start),
+                fixer.replaceTextRange([type.range[1], node.range[1]], end),
+              ];
+            },
+          });
+        },
+      };
+    },
   },
 });

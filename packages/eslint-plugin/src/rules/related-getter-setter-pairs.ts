@@ -40,7 +40,8 @@ export default createRule({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create(context) {
+  create: {
+    default(context) {
     const services = getParserServices(context);
     const checker = services.program.getTypeChecker();
     const methodPairsStack: Map<string, MethodPair>[] = [];
@@ -106,6 +107,7 @@ export default createRule({
         methodPairsStack.push(new Map());
       },
     };
+    },
   },
 });
 

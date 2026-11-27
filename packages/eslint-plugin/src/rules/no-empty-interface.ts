@@ -60,72 +60,74 @@ export default createRule<Options, MessageIds>({
       allowSingleExtends: false,
     },
   ],
-  create(context, [{ allowSingleExtends }]) {
-    return {
-      TSInterfaceDeclaration(node): void {
-        if (node.body.body.length !== 0) {
-          // interface contains members --> Nothing to report
-          return;
-        }
+  create: {
+    default(context, [{ allowSingleExtends }]) {
+      return {
+        TSInterfaceDeclaration(node): void {
+          if (node.body.body.length !== 0) {
+            // interface contains members --> Nothing to report
+            return;
+          }
 
-        const extend = node.extends;
-        if (extend.length === 0) {
-          context.report({
-            node: node.id,
-            messageId: 'noEmpty',
-          });
-        } else if (
-          extend.length === 1 &&
-          // interface extends exactly 1 interface --> Report depending on rule setting
-          !allowSingleExtends
-        ) {
-          const fix = (fixer: TSESLint.RuleFixer): TSESLint.RuleFix => {
-            let typeParam = '';
-            if (node.typeParameters) {
-              typeParam = context.sourceCode.getText(node.typeParameters);
-            }
-            return fixer.replaceText(
-              node,
-              `type ${context.sourceCode.getText(
-                node.id,
-              )}${typeParam} = ${context.sourceCode.getText(extend[0])}`,
+          const extend = node.extends;
+          if (extend.length === 0) {
+            context.report({
+              node: node.id,
+              messageId: 'noEmpty',
+            });
+          } else if (
+            extend.length === 1 &&
+            // interface extends exactly 1 interface --> Report depending on rule setting
+            !allowSingleExtends
+          ) {
+            const fix = (fixer: TSESLint.RuleFixer): TSESLint.RuleFix => {
+              let typeParam = '';
+              if (node.typeParameters) {
+                typeParam = context.sourceCode.getText(node.typeParameters);
+              }
+              return fixer.replaceText(
+                node,
+                `type ${context.sourceCode.getText(
+                  node.id,
+                )}${typeParam} = ${context.sourceCode.getText(extend[0])}`,
+              );
+            };
+            const scope = context.sourceCode.getScope(node);
+
+            const mergedWithClassDeclaration = scope.set
+              .get(node.id.name)
+              ?.defs.some(
+                def => def.node.type === AST_NODE_TYPES.ClassDeclaration,
+              );
+
+            const isInAmbientDeclaration =
+              isDefinitionFile(context.filename) &&
+              scope.type === ScopeType.tsModule &&
+              scope.block.declare;
+
+            const useAutoFix = !(
+              isInAmbientDeclaration || mergedWithClassDeclaration
             );
-          };
-          const scope = context.sourceCode.getScope(node);
 
-          const mergedWithClassDeclaration = scope.set
-            .get(node.id.name)
-            ?.defs.some(
-              def => def.node.type === AST_NODE_TYPES.ClassDeclaration,
-            );
-
-          const isInAmbientDeclaration =
-            isDefinitionFile(context.filename) &&
-            scope.type === ScopeType.tsModule &&
-            scope.block.declare;
-
-          const useAutoFix = !(
-            isInAmbientDeclaration || mergedWithClassDeclaration
-          );
-
-          context.report({
-            node: node.id,
-            messageId: 'noEmptyWithSuper',
-            ...(useAutoFix
-              ? { fix }
-              : !mergedWithClassDeclaration
-                ? {
-                    suggest: [
-                      {
-                        messageId: 'noEmptyWithSuper',
-                        fix,
-                      },
-                    ],
-                  }
-                : null),
-          });
-        }
-      },
-    };
+            context.report({
+              node: node.id,
+              messageId: 'noEmptyWithSuper',
+              ...(useAutoFix
+                ? { fix }
+                : !mergedWithClassDeclaration
+                  ? {
+                      suggest: [
+                        {
+                          messageId: 'noEmptyWithSuper',
+                          fix,
+                        },
+                      ],
+                    }
+                  : null),
+            });
+          }
+        },
+      };
+    },
   },
 });

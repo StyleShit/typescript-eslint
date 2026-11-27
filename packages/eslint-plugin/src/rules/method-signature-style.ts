@@ -15,7 +15,9 @@ import {
 
 export type Options = [('method' | 'property')?];
 export type MessageIds =
-  'convertToMethodSignature' | 'errorMethod' | 'errorProperty';
+  | 'convertToMethodSignature'
+  | 'errorMethod'
+  | 'errorProperty';
 
 export default createRule<Options, MessageIds>({
   name: 'method-signature-style',
@@ -45,113 +47,164 @@ export default createRule<Options, MessageIds>({
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: ['property'],
 
-  create(context, [mode]) {
-    function getMethodKey(
-      node: TSESTree.TSMethodSignature | TSESTree.TSPropertySignature,
-    ): string {
-      let key = context.sourceCode.getText(node.key);
-      if (node.computed) {
-        key = `[${key}]`;
-      }
-      if (node.optional) {
-        key = `${key}?`;
-      }
-      return key;
-    }
-
-    function getMethodParams(
-      node: TSESTree.TSFunctionType | TSESTree.TSMethodSignature,
-    ): string {
-      let params = '()';
-      if (node.params.length > 0) {
-        const openingParen = nullThrows(
-          context.sourceCode.getTokenBefore(
-            node.params[0],
-            isOpeningParenToken,
-          ),
-          'Missing opening paren before first parameter',
-        );
-        const closingParen = nullThrows(
-          context.sourceCode.getTokenAfter(
-            node.params[node.params.length - 1],
-            isClosingParenToken,
-          ),
-          'Missing closing paren after last parameter',
-        );
-
-        params = context.sourceCode.text.substring(
-          openingParen.range[0],
-          closingParen.range[1],
-        );
-      }
-      if (node.typeParameters != null) {
-        const typeParams = context.sourceCode.getText(node.typeParameters);
-        params = `${typeParams}${params}`;
-      }
-      return params;
-    }
-
-    function getMethodReturnType(
-      node: TSESTree.TSFunctionType | TSESTree.TSMethodSignature,
-    ): string {
-      return node.returnType == null
-        ? // if the method has no return type, it implicitly has an `any` return type
-          // we just make it explicit here so we can do the fix
-          'any'
-        : context.sourceCode.getText(node.returnType.typeAnnotation);
-    }
-
-    function getDelimiter(node: TSESTree.Node): string {
-      const lastToken = context.sourceCode.getLastToken(node);
-      if (
-        lastToken &&
-        (isSemicolonToken(lastToken) || isCommaToken(lastToken))
-      ) {
-        return lastToken.value;
+  create: {
+    default(context, [mode]) {
+      function getMethodKey(
+        node: TSESTree.TSMethodSignature | TSESTree.TSPropertySignature,
+      ): string {
+        let key = context.sourceCode.getText(node.key);
+        if (node.computed) {
+          key = `[${key}]`;
+        }
+        if (node.optional) {
+          key = `${key}?`;
+        }
+        return key;
       }
 
-      return '';
-    }
+      function getMethodParams(
+        node: TSESTree.TSFunctionType | TSESTree.TSMethodSignature,
+      ): string {
+        let params = '()';
+        if (node.params.length > 0) {
+          const openingParen = nullThrows(
+            context.sourceCode.getTokenBefore(
+              node.params[0],
+              isOpeningParenToken,
+            ),
+            'Missing opening paren before first parameter',
+          );
+          const closingParen = nullThrows(
+            context.sourceCode.getTokenAfter(
+              node.params[node.params.length - 1],
+              isClosingParenToken,
+            ),
+            'Missing closing paren after last parameter',
+          );
 
-    function isNodeParentModuleDeclaration(node: TSESTree.Node): boolean {
-      if (!node.parent) {
-        return false;
+          params = context.sourceCode.text.substring(
+            openingParen.range[0],
+            closingParen.range[1],
+          );
+        }
+        if (node.typeParameters != null) {
+          const typeParams = context.sourceCode.getText(node.typeParameters);
+          params = `${typeParams}${params}`;
+        }
+        return params;
       }
 
-      if (node.parent.type === AST_NODE_TYPES.TSModuleDeclaration) {
-        return true;
+      function getMethodReturnType(
+        node: TSESTree.TSFunctionType | TSESTree.TSMethodSignature,
+      ): string {
+        return node.returnType == null
+          ? // if the method has no return type, it implicitly has an `any` return type
+            // we just make it explicit here so we can do the fix
+            'any'
+          : context.sourceCode.getText(node.returnType.typeAnnotation);
       }
 
-      if (node.parent.type === AST_NODE_TYPES.Program) {
-        return false;
+      function getDelimiter(node: TSESTree.Node): string {
+        const lastToken = context.sourceCode.getLastToken(node);
+        if (
+          lastToken &&
+          (isSemicolonToken(lastToken) || isCommaToken(lastToken))
+        ) {
+          return lastToken.value;
+        }
+
+        return '';
       }
-      return isNodeParentModuleDeclaration(node.parent);
-    }
 
-    return {
-      ...(mode === 'property' && {
-        TSMethodSignature(methodNode): void {
-          if (methodNode.kind !== 'method') {
-            return;
-          }
+      function isNodeParentModuleDeclaration(node: TSESTree.Node): boolean {
+        if (!node.parent) {
+          return false;
+        }
 
-          const skipFix = returnTypeReferencesThisType(methodNode.returnType);
-          const parent = methodNode.parent;
-          const members =
-            parent.type === AST_NODE_TYPES.TSInterfaceBody
-              ? parent.body
-              : parent.members;
+        if (node.parent.type === AST_NODE_TYPES.TSModuleDeclaration) {
+          return true;
+        }
 
-          const duplicatedKeyMethodNodes: TSESTree.TSMethodSignature[] =
-            members.filter(
-              (element): element is TSESTree.TSMethodSignature =>
-                element.type === AST_NODE_TYPES.TSMethodSignature &&
-                element !== methodNode &&
-                getMethodKey(element) === getMethodKey(methodNode),
-            );
-          const isParentModule = isNodeParentModuleDeclaration(methodNode);
+        if (node.parent.type === AST_NODE_TYPES.Program) {
+          return false;
+        }
+        return isNodeParentModuleDeclaration(node.parent);
+      }
 
-          if (duplicatedKeyMethodNodes.length > 0) {
+      return {
+        ...(mode === 'property' && {
+          TSMethodSignature(methodNode): void {
+            if (methodNode.kind !== 'method') {
+              return;
+            }
+
+            const skipFix = returnTypeReferencesThisType(methodNode.returnType);
+            const parent = methodNode.parent;
+            const members =
+              parent.type === AST_NODE_TYPES.TSInterfaceBody
+                ? parent.body
+                : parent.members;
+
+            const duplicatedKeyMethodNodes: TSESTree.TSMethodSignature[] =
+              members.filter(
+                (element): element is TSESTree.TSMethodSignature =>
+                  element.type === AST_NODE_TYPES.TSMethodSignature &&
+                  element !== methodNode &&
+                  getMethodKey(element) === getMethodKey(methodNode),
+              );
+            const isParentModule = isNodeParentModuleDeclaration(methodNode);
+
+            if (duplicatedKeyMethodNodes.length > 0) {
+              if (isParentModule) {
+                context.report({
+                  node: methodNode,
+                  messageId: 'errorMethod',
+                });
+              } else {
+                context.report({
+                  node: methodNode,
+                  messageId: 'errorMethod',
+                  fix: skipFix
+                    ? undefined
+                    : function* fix(fixer) {
+                        const methodNodes = [
+                          methodNode,
+                          ...duplicatedKeyMethodNodes,
+                        ].sort((a, b) => (a.range[0] < b.range[0] ? -1 : 1));
+                        const typeString = methodNodes
+                          .map(node => {
+                            const params = getMethodParams(node);
+                            const returnType = getMethodReturnType(node);
+                            return `(${params} => ${returnType})`;
+                          })
+                          .join(' & ');
+                        const key = getMethodKey(methodNode);
+                        const delimiter = getDelimiter(methodNode);
+                        yield fixer.replaceText(
+                          methodNode,
+                          `${key}: ${typeString}${delimiter}`,
+                        );
+                        for (const node of duplicatedKeyMethodNodes) {
+                          const lastToken =
+                            context.sourceCode.getLastToken(node);
+                          if (lastToken) {
+                            const nextToken =
+                              context.sourceCode.getTokenAfter(lastToken);
+                            if (nextToken) {
+                              yield fixer.remove(node);
+                              yield fixer.replaceTextRange(
+                                [lastToken.range[1], nextToken.range[0]],
+                                '',
+                              );
+                            }
+                          }
+                        }
+                      },
+                });
+              }
+              return;
+            }
+
             if (isParentModule) {
               context.report({
                 node: methodNode,
@@ -163,109 +216,61 @@ export default createRule<Options, MessageIds>({
                 messageId: 'errorMethod',
                 fix: skipFix
                   ? undefined
-                  : function* fix(fixer) {
-                      const methodNodes = [
-                        methodNode,
-                        ...duplicatedKeyMethodNodes,
-                      ].sort((a, b) => (a.range[0] < b.range[0] ? -1 : 1));
-                      const typeString = methodNodes
-                        .map(node => {
-                          const params = getMethodParams(node);
-                          const returnType = getMethodReturnType(node);
-                          return `(${params} => ${returnType})`;
-                        })
-                        .join(' & ');
+                  : fixer => {
                       const key = getMethodKey(methodNode);
+                      const params = getMethodParams(methodNode);
+                      const returnType = getMethodReturnType(methodNode);
                       const delimiter = getDelimiter(methodNode);
-                      yield fixer.replaceText(
+                      return fixer.replaceText(
                         methodNode,
-                        `${key}: ${typeString}${delimiter}`,
+                        `${key}: ${params} => ${returnType}${delimiter}`,
                       );
-                      for (const node of duplicatedKeyMethodNodes) {
-                        const lastToken = context.sourceCode.getLastToken(node);
-                        if (lastToken) {
-                          const nextToken =
-                            context.sourceCode.getTokenAfter(lastToken);
-                          if (nextToken) {
-                            yield fixer.remove(node);
-                            yield fixer.replaceTextRange(
-                              [lastToken.range[1], nextToken.range[0]],
-                              '',
-                            );
-                          }
-                        }
-                      }
                     },
               });
             }
-            return;
-          }
+          },
+        }),
+        ...(mode === 'method' && {
+          TSPropertySignature(propertyNode): void {
+            const typeNode = propertyNode.typeAnnotation?.typeAnnotation;
+            if (typeNode?.type !== AST_NODE_TYPES.TSFunctionType) {
+              return;
+            }
 
-          if (isParentModule) {
-            context.report({
-              node: methodNode,
-              messageId: 'errorMethod',
-            });
-          } else {
-            context.report({
-              node: methodNode,
-              messageId: 'errorMethod',
-              fix: skipFix
-                ? undefined
-                : fixer => {
-                    const key = getMethodKey(methodNode);
-                    const params = getMethodParams(methodNode);
-                    const returnType = getMethodReturnType(methodNode);
-                    const delimiter = getDelimiter(methodNode);
-                    return fixer.replaceText(
-                      methodNode,
-                      `${key}: ${params} => ${returnType}${delimiter}`,
-                    );
-                  },
-            });
-          }
-        },
-      }),
-      ...(mode === 'method' && {
-        TSPropertySignature(propertyNode): void {
-          const typeNode = propertyNode.typeAnnotation?.typeAnnotation;
-          if (typeNode?.type !== AST_NODE_TYPES.TSFunctionType) {
-            return;
-          }
+            const fix: ReportFixFunction = fixer => {
+              const key = getMethodKey(propertyNode);
+              const params = getMethodParams(typeNode);
+              const returnType = getMethodReturnType(typeNode);
+              const delimiter = getDelimiter(propertyNode);
+              return fixer.replaceText(
+                propertyNode,
+                `${key}${params}: ${returnType}${delimiter}`,
+              );
+            };
 
-          const fix: ReportFixFunction = fixer => {
-            const key = getMethodKey(propertyNode);
-            const params = getMethodParams(typeNode);
-            const returnType = getMethodReturnType(typeNode);
-            const delimiter = getDelimiter(propertyNode);
-            return fixer.replaceText(
-              propertyNode,
-              `${key}${params}: ${returnType}${delimiter}`,
-            );
-          };
+            // There is no syntax for a `readonly` method signature, so converting
+            // a `readonly` function-typed property drops the `readonly` modifier.
+            // That is a behavioral change (a method may be reassigned, a
+            // `readonly` property may not), so it is offered as a suggestion
+            // rather than applied as an autofix.
+            if (propertyNode.readonly) {
+              context.report({
+                node: propertyNode,
+                messageId: 'errorProperty',
+                suggest: [{ messageId: 'convertToMethodSignature', fix }],
+              });
+              return;
+            }
 
-          // There is no syntax for a `readonly` method signature, so converting
-          // a `readonly` function-typed property drops the `readonly` modifier.
-          // That is a behavioral change (a method may be reassigned, a
-          // `readonly` property may not), so it is offered as a suggestion
-          // rather than applied as an autofix.
-          if (propertyNode.readonly) {
             context.report({
               node: propertyNode,
               messageId: 'errorProperty',
-              suggest: [{ messageId: 'convertToMethodSignature', fix }],
+              fix,
             });
-            return;
-          }
-
-          context.report({
-            node: propertyNode,
-            messageId: 'errorProperty',
-            fix,
-          });
-        },
-      }),
-    };
+          },
+        }),
+      };
+    },
   },
 });
 

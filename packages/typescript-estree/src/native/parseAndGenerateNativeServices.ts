@@ -213,6 +213,12 @@ export function parseAndGenerateNativeServices<
 
   return {
     ast: estree as ParseAndGenerateServicesResult<T>['ast'],
-    services: createParserServices(astMaps, program),
+    services: createParserServices(astMaps, program, {
+      checker: context.project.checker,
+      getNativeNode: node =>
+        nodeAdapter.unwrapNode(astMaps.esTreeNodeToTSNodeMap.get(node)),
+      program: context.project.program,
+      sourceFile: context.sourceFile,
+    }),
   };
 }

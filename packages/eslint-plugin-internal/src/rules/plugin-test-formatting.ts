@@ -150,7 +150,8 @@ export default createRule<Options, MessageIds>({
       formatWithPrettier: true,
     },
   ],
-  create(context, [{ formatWithPrettier }]) {
+  create: {
+    default(context, [{ formatWithPrettier }]) {
     const services = ESLintUtils.getParserServices(context);
     const checker = services.program.getTypeChecker();
 
@@ -583,5 +584,6 @@ ${' '.repeat(parentIndent)}\``,
         }
       },
     };
+    },
   },
 });

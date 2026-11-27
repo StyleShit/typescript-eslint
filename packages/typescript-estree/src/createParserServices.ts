@@ -1,14 +1,19 @@
 import type * as ts from 'typescript';
 
 import type { ASTMaps } from './convert';
-import type { ParserServices } from './parser-options';
+import type {
+  NativeParserServices,
+  ParserServices,
+} from './parser-options';
 
 export function createParserServices(
   astMaps: ASTMaps,
   program: ts.Program | null,
+  native?: NativeParserServices,
 ): ParserServices {
   if (!program) {
     return {
+      backend: 'classic',
       emitDecoratorMetadata: undefined,
       experimentalDecorators: undefined,
       isolatedDeclarations: undefined,
@@ -24,6 +29,9 @@ export function createParserServices(
   const compilerOptions = program.getCompilerOptions();
 
   return {
+    ...(native
+      ? { backend: 'tsgo' as const, native }
+      : { backend: 'classic' as const }),
     program,
     // not set in the config is the same as off
     emitDecoratorMetadata: compilerOptions.emitDecoratorMetadata ?? false,

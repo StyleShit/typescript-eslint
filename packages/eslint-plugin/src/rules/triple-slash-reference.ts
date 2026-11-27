@@ -61,7 +61,8 @@ export default createRule<Options, MessageIds>({
       types: 'prefer-import',
     },
   ],
-  create(context, [{ lib, path, types }]) {
+  create: {
+    default(context, [{ lib, path, types }]) {
     let programNode: TSESTree.Node | undefined;
 
     const references: {
@@ -139,5 +140,6 @@ export default createRule<Options, MessageIds>({
         }
       },
     };
+    },
   },
 });

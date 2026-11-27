@@ -60,191 +60,192 @@ export default createRule<Options, MessageIds>({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [{ onlyInlineLambdas: false }],
-  create(context, [{ onlyInlineLambdas }]) {
-    const services = getParserServices(context);
-    const checker = services.program.getTypeChecker();
-    const classScopeStack: ClassScope[] = [];
+  create: {
+    default(context, [{ onlyInlineLambdas }]) {
+      const services = getParserServices(context);
+      const checker = services.program.getTypeChecker();
+      const classScopeStack: ClassScope[] = [];
 
-    function handlePropertyAccessExpression(
-      node: ts.PropertyAccessExpression,
-      parent: ts.Node,
-      classScope: ClassScope,
-    ): void {
-      if (ts.isBinaryExpression(parent)) {
-        handleParentBinaryExpression(node, parent, classScope);
-        return;
-      }
+      function handlePropertyAccessExpression(
+        node: ts.PropertyAccessExpression,
+        parent: ts.Node,
+        classScope: ClassScope,
+      ): void {
+        if (ts.isBinaryExpression(parent)) {
+          handleParentBinaryExpression(node, parent, classScope);
+          return;
+        }
 
-      if (ts.isDeleteExpression(parent) || isDestructuringAssignment(node)) {
-        classScope.addVariableModification(node);
-        return;
-      }
-
-      if (
-        ts.isPostfixUnaryExpression(parent) ||
-        ts.isPrefixUnaryExpression(parent)
-      ) {
-        handleParentPostfixOrPrefixUnaryExpression(parent, classScope);
-      }
-    }
-
-    function handleParentBinaryExpression(
-      node: ts.PropertyAccessExpression,
-      parent: ts.BinaryExpression,
-      classScope: ClassScope,
-    ): void {
-      if (
-        parent.left === node &&
-        tsutils.isAssignmentKind(parent.operatorToken.kind)
-      ) {
-        classScope.addVariableModification(node);
-      }
-    }
-
-    function handleParentPostfixOrPrefixUnaryExpression(
-      node: ts.PostfixUnaryExpression | ts.PrefixUnaryExpression,
-      classScope: ClassScope,
-    ): void {
-      if (
-        node.operator === ts.SyntaxKind.PlusPlusToken ||
-        node.operator === ts.SyntaxKind.MinusMinusToken
-      ) {
-        classScope.addVariableModification(
-          node.operand as ts.PropertyAccessExpression,
-        );
-      }
-    }
-
-    function isDestructuringAssignment(
-      node: ts.PropertyAccessExpression,
-    ): boolean {
-      let current = node.parent as ts.Node | undefined;
-
-      while (current) {
-        const parent = current.parent;
+        if (ts.isDeleteExpression(parent) || isDestructuringAssignment(node)) {
+          classScope.addVariableModification(node);
+          return;
+        }
 
         if (
-          ts.isObjectLiteralExpression(parent) ||
-          ts.isArrayLiteralExpression(parent) ||
-          ts.isSpreadAssignment(parent) ||
-          (ts.isSpreadElement(parent) &&
-            ts.isArrayLiteralExpression(parent.parent))
+          ts.isPostfixUnaryExpression(parent) ||
+          ts.isPrefixUnaryExpression(parent)
         ) {
-          current = parent;
-        } else if (
-          ts.isBinaryExpression(parent) &&
-          !ts.isPropertyAccessExpression(current)
+          handleParentPostfixOrPrefixUnaryExpression(parent, classScope);
+        }
+      }
+
+      function handleParentBinaryExpression(
+        node: ts.PropertyAccessExpression,
+        parent: ts.BinaryExpression,
+        classScope: ClassScope,
+      ): void {
+        if (
+          parent.left === node &&
+          tsutils.isAssignmentKind(parent.operatorToken.kind)
         ) {
-          return (
-            parent.left === current &&
-            parent.operatorToken.kind === ts.SyntaxKind.EqualsToken
+          classScope.addVariableModification(node);
+        }
+      }
+
+      function handleParentPostfixOrPrefixUnaryExpression(
+        node: ts.PostfixUnaryExpression | ts.PrefixUnaryExpression,
+        classScope: ClassScope,
+      ): void {
+        if (
+          node.operator === ts.SyntaxKind.PlusPlusToken ||
+          node.operator === ts.SyntaxKind.MinusMinusToken
+        ) {
+          classScope.addVariableModification(
+            node.operand as ts.PropertyAccessExpression,
           );
-        } else {
-          break;
         }
       }
 
-      return false;
-    }
+      function isDestructuringAssignment(
+        node: ts.PropertyAccessExpression,
+      ): boolean {
+        let current = node.parent as ts.Node | undefined;
 
-    function isFunctionScopeBoundaryInStack(
-      node:
-        | TSESTree.ArrowFunctionExpression
-        | TSESTree.FunctionDeclaration
-        | TSESTree.FunctionExpression
-        | TSESTree.MethodDefinition,
-    ): boolean {
-      if (classScopeStack.length === 0) {
+        while (current) {
+          const parent = current.parent;
+
+          if (
+            ts.isObjectLiteralExpression(parent) ||
+            ts.isArrayLiteralExpression(parent) ||
+            ts.isSpreadAssignment(parent) ||
+            (ts.isSpreadElement(parent) &&
+              ts.isArrayLiteralExpression(parent.parent))
+          ) {
+            current = parent;
+          } else if (
+            ts.isBinaryExpression(parent) &&
+            !ts.isPropertyAccessExpression(current)
+          ) {
+            return (
+              parent.left === current &&
+              parent.operatorToken.kind === ts.SyntaxKind.EqualsToken
+            );
+          } else {
+            break;
+          }
+        }
+
         return false;
       }
 
-      const tsNode = services.esTreeNodeToTSNodeMap.get(node);
-      if (ts.isConstructorDeclaration(tsNode)) {
-        return false;
-      }
-
-      return tsutils.isFunctionScopeBoundary(tsNode);
-    }
-
-    function getEsNodesFromViolatingNode(
-      violatingNode: ParameterOrPropertyDeclaration,
-    ): { esNode: TSESTree.Node; nameNode: TSESTree.Node } {
-      return {
-        esNode: services.tsNodeToESTreeNodeMap.get(violatingNode),
-        nameNode: services.tsNodeToESTreeNodeMap.get(violatingNode.name),
-      };
-    }
-
-    function getTypeAnnotationForViolatingNode(
-      node: TSESTree.Node,
-      type: ts.Type,
-      initializerType: ts.Type,
-    ) {
-      const annotation = checker.typeToString(type);
-
-      // verify the about-to-be-added type annotation is in-scope
-      if (tsutils.isTypeFlagSet(initializerType, ts.TypeFlags.EnumLiteral)) {
-        const scope = context.sourceCode.getScope(node);
-        const variable = ASTUtils.findVariable(scope, annotation);
-
-        if (variable == null) {
-          return null;
-        }
-
-        const definition = variable.defs.find(def => def.isTypeDefinition);
-
-        if (definition == null) {
-          return null;
-        }
-
-        const definitionType = services.getTypeAtLocation(definition.node);
-
-        if (definitionType !== type) {
-          return null;
-        }
-      }
-
-      return annotation;
-    }
-
-    return {
-      [`${functionScopeBoundaries}:exit`](
+      function isFunctionScopeBoundaryInStack(
         node:
           | TSESTree.ArrowFunctionExpression
           | TSESTree.FunctionDeclaration
           | TSESTree.FunctionExpression
           | TSESTree.MethodDefinition,
-      ): void {
-        if (ASTUtils.isConstructor(node)) {
-          classScopeStack[classScopeStack.length - 1].exitConstructor();
-        } else if (isFunctionScopeBoundaryInStack(node)) {
-          classScopeStack[classScopeStack.length - 1].exitNonConstructor();
+      ): boolean {
+        if (classScopeStack.length === 0) {
+          return false;
         }
-      },
-      'ClassDeclaration, ClassExpression'(
-        node: TSESTree.ClassDeclaration | TSESTree.ClassExpression,
-      ): void {
-        classScopeStack.push(
-          new ClassScope(
-            checker,
-            services.esTreeNodeToTSNodeMap.get(node),
-            onlyInlineLambdas,
-          ),
-        );
-      },
-      'ClassDeclaration, ClassExpression:exit'(): void {
-        const finalizedClassScope = nullThrows(
-          classScopeStack.pop(),
-          'Stack should exist on class exit',
-        );
 
-        for (const violatingNode of finalizedClassScope.finalizeUnmodifiedPrivateNonReadonlys()) {
-          const { esNode, nameNode } =
-            getEsNodesFromViolatingNode(violatingNode);
+        const tsNode = services.esTreeNodeToTSNodeMap.get(node);
+        if (ts.isConstructorDeclaration(tsNode)) {
+          return false;
+        }
 
-          const reportNodeOrLoc:
-            { loc: TSESTree.SourceLocation } | { node: TSESTree.Node } =
-            (() => {
+        return tsutils.isFunctionScopeBoundary(tsNode);
+      }
+
+      function getEsNodesFromViolatingNode(
+        violatingNode: ParameterOrPropertyDeclaration,
+      ): { esNode: TSESTree.Node; nameNode: TSESTree.Node } {
+        return {
+          esNode: services.tsNodeToESTreeNodeMap.get(violatingNode),
+          nameNode: services.tsNodeToESTreeNodeMap.get(violatingNode.name),
+        };
+      }
+
+      function getTypeAnnotationForViolatingNode(
+        node: TSESTree.Node,
+        type: ts.Type,
+        initializerType: ts.Type,
+      ) {
+        const annotation = checker.typeToString(type);
+
+        // verify the about-to-be-added type annotation is in-scope
+        if (tsutils.isTypeFlagSet(initializerType, ts.TypeFlags.EnumLiteral)) {
+          const scope = context.sourceCode.getScope(node);
+          const variable = ASTUtils.findVariable(scope, annotation);
+
+          if (variable == null) {
+            return null;
+          }
+
+          const definition = variable.defs.find(def => def.isTypeDefinition);
+
+          if (definition == null) {
+            return null;
+          }
+
+          const definitionType = services.getTypeAtLocation(definition.node);
+
+          if (definitionType !== type) {
+            return null;
+          }
+        }
+
+        return annotation;
+      }
+
+      return {
+        [`${functionScopeBoundaries}:exit`](
+          node:
+            | TSESTree.ArrowFunctionExpression
+            | TSESTree.FunctionDeclaration
+            | TSESTree.FunctionExpression
+            | TSESTree.MethodDefinition,
+        ): void {
+          if (ASTUtils.isConstructor(node)) {
+            classScopeStack[classScopeStack.length - 1].exitConstructor();
+          } else if (isFunctionScopeBoundaryInStack(node)) {
+            classScopeStack[classScopeStack.length - 1].exitNonConstructor();
+          }
+        },
+        'ClassDeclaration, ClassExpression'(
+          node: TSESTree.ClassDeclaration | TSESTree.ClassExpression,
+        ): void {
+          classScopeStack.push(
+            new ClassScope(
+              checker,
+              services.esTreeNodeToTSNodeMap.get(node),
+              onlyInlineLambdas,
+            ),
+          );
+        },
+        'ClassDeclaration, ClassExpression:exit'(): void {
+          const finalizedClassScope = nullThrows(
+            classScopeStack.pop(),
+            'Stack should exist on class exit',
+          );
+
+          for (const violatingNode of finalizedClassScope.finalizeUnmodifiedPrivateNonReadonlys()) {
+            const { esNode, nameNode } =
+              getEsNodesFromViolatingNode(violatingNode);
+
+            const reportNodeOrLoc:
+              | { loc: TSESTree.SourceLocation }
+              | { node: TSESTree.Node } = (() => {
               switch (esNode.type) {
                 case AST_NODE_TYPES.MethodDefinition:
                 case AST_NODE_TYPES.PropertyDefinition:
@@ -263,128 +264,130 @@ export default createRule<Options, MessageIds>({
               }
             })();
 
-          const typeAnnotation = (() => {
-            if (esNode.type !== AST_NODE_TYPES.PropertyDefinition) {
-              return null;
-            }
-
-            if (esNode.typeAnnotation || !esNode.value) {
-              return null;
-            }
-
-            if (nameNode.type !== AST_NODE_TYPES.Identifier) {
-              return null;
-            }
-
-            const hasConstructorModifications =
-              finalizedClassScope.memberHasConstructorModifications(
-                nameNode.name,
-              );
-
-            if (!hasConstructorModifications) {
-              return null;
-            }
-
-            const violatingType = services.getTypeAtLocation(esNode);
-            const initializerType = services.getTypeAtLocation(esNode.value);
-
-            // if the RHS is a literal, its type would be narrowed, while the
-            // type of the initializer (which isn't `readonly`) would be the
-            // widened type
-            if (initializerType === violatingType) {
-              return null;
-            }
-
-            if (!tsutils.isLiteralType(initializerType)) {
-              return null;
-            }
-
-            return getTypeAnnotationForViolatingNode(
-              esNode,
-              violatingType,
-              initializerType,
-            );
-          })();
-
-          context.report({
-            ...reportNodeOrLoc,
-            messageId: 'preferReadonly',
-            data: {
-              name: context.sourceCode.getText(nameNode),
-            },
-            *fix(fixer) {
-              const readonlyInsertionTarget =
-                esNode.type === AST_NODE_TYPES.PropertyDefinition &&
-                esNode.computed
-                  ? nullThrows(
-                      context.sourceCode.getTokenBefore(nameNode),
-                      'Expected to find a token before computed property name',
-                    )
-                  : nameNode;
-
-              yield fixer.insertTextBefore(
-                readonlyInsertionTarget,
-                'readonly ',
-              );
-
-              if (typeAnnotation) {
-                yield fixer.insertTextAfter(nameNode, `: ${typeAnnotation}`);
+            const typeAnnotation = (() => {
+              if (esNode.type !== AST_NODE_TYPES.PropertyDefinition) {
+                return null;
               }
-            },
-          });
-        }
-      },
-      [functionScopeBoundaries](
-        node:
-          | TSESTree.ArrowFunctionExpression
-          | TSESTree.FunctionDeclaration
-          | TSESTree.FunctionExpression
-          | TSESTree.MethodDefinition,
-      ): void {
-        if (ASTUtils.isConstructor(node)) {
-          classScopeStack[classScopeStack.length - 1].enterConstructor(
-            services.esTreeNodeToTSNodeMap.get(node),
-          );
-        } else if (isFunctionScopeBoundaryInStack(node)) {
-          classScopeStack[classScopeStack.length - 1].enterNonConstructor();
-        }
-      },
-      MemberExpression(node): void {
-        if (classScopeStack.length === 0) {
-          return;
-        }
 
-        const classScope = classScopeStack[classScopeStack.length - 1];
+              if (esNode.typeAnnotation || !esNode.value) {
+                return null;
+              }
 
-        if (!node.computed) {
-          const tsNode = services.esTreeNodeToTSNodeMap.get(
-            node,
-          ) as ts.PropertyAccessExpression;
-          handlePropertyAccessExpression(tsNode, tsNode.parent, classScope);
-        } else {
-          const tsNode = services.esTreeNodeToTSNodeMap.get(node);
-          if (
-            ts.isElementAccessExpression(tsNode) &&
-            ts.isBinaryExpression(tsNode.parent) &&
-            tsNode.parent.left === tsNode &&
-            tsutils.isAssignmentKind(tsNode.parent.operatorToken.kind)
-          ) {
-            const memberName = getStaticMemberAccessValue(node, context);
-            if (typeof memberName === 'string') {
-              classScope.addVariableModificationByName(
-                tsNode.expression,
-                memberName,
+              if (nameNode.type !== AST_NODE_TYPES.Identifier) {
+                return null;
+              }
+
+              const hasConstructorModifications =
+                finalizedClassScope.memberHasConstructorModifications(
+                  nameNode.name,
+                );
+
+              if (!hasConstructorModifications) {
+                return null;
+              }
+
+              const violatingType = services.getTypeAtLocation(esNode);
+              const initializerType = services.getTypeAtLocation(esNode.value);
+
+              // if the RHS is a literal, its type would be narrowed, while the
+              // type of the initializer (which isn't `readonly`) would be the
+              // widened type
+              if (initializerType === violatingType) {
+                return null;
+              }
+
+              if (!tsutils.isLiteralType(initializerType)) {
+                return null;
+              }
+
+              return getTypeAnnotationForViolatingNode(
+                esNode,
+                violatingType,
+                initializerType,
               );
+            })();
+
+            context.report({
+              ...reportNodeOrLoc,
+              messageId: 'preferReadonly',
+              data: {
+                name: context.sourceCode.getText(nameNode),
+              },
+              *fix(fixer) {
+                const readonlyInsertionTarget =
+                  esNode.type === AST_NODE_TYPES.PropertyDefinition &&
+                  esNode.computed
+                    ? nullThrows(
+                        context.sourceCode.getTokenBefore(nameNode),
+                        'Expected to find a token before computed property name',
+                      )
+                    : nameNode;
+
+                yield fixer.insertTextBefore(
+                  readonlyInsertionTarget,
+                  'readonly ',
+                );
+
+                if (typeAnnotation) {
+                  yield fixer.insertTextAfter(nameNode, `: ${typeAnnotation}`);
+                }
+              },
+            });
+          }
+        },
+        [functionScopeBoundaries](
+          node:
+            | TSESTree.ArrowFunctionExpression
+            | TSESTree.FunctionDeclaration
+            | TSESTree.FunctionExpression
+            | TSESTree.MethodDefinition,
+        ): void {
+          if (ASTUtils.isConstructor(node)) {
+            classScopeStack[classScopeStack.length - 1].enterConstructor(
+              services.esTreeNodeToTSNodeMap.get(node),
+            );
+          } else if (isFunctionScopeBoundaryInStack(node)) {
+            classScopeStack[classScopeStack.length - 1].enterNonConstructor();
+          }
+        },
+        MemberExpression(node): void {
+          if (classScopeStack.length === 0) {
+            return;
+          }
+
+          const classScope = classScopeStack[classScopeStack.length - 1];
+
+          if (!node.computed) {
+            const tsNode = services.esTreeNodeToTSNodeMap.get(
+              node,
+            ) as ts.PropertyAccessExpression;
+            handlePropertyAccessExpression(tsNode, tsNode.parent, classScope);
+          } else {
+            const tsNode = services.esTreeNodeToTSNodeMap.get(node);
+            if (
+              ts.isElementAccessExpression(tsNode) &&
+              ts.isBinaryExpression(tsNode.parent) &&
+              tsNode.parent.left === tsNode &&
+              tsutils.isAssignmentKind(tsNode.parent.operatorToken.kind)
+            ) {
+              const memberName = getStaticMemberAccessValue(node, context);
+              if (typeof memberName === 'string') {
+                classScope.addVariableModificationByName(
+                  tsNode.expression,
+                  memberName,
+                );
+              }
             }
           }
-        }
-      },
-    };
+        },
+      };
+    },
   },
 });
 
 type ParameterOrPropertyDeclaration =
-  ts.ParameterDeclaration | ts.PropertyDeclaration;
+  | ts.ParameterDeclaration
+  | ts.PropertyDeclaration;
 
 const OUTSIDE_CONSTRUCTOR = -1;
 const DIRECTLY_INSIDE_CONSTRUCTOR = 0;

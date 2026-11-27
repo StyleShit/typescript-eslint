@@ -1,6 +1,7 @@
 import type * as TSESLint from '../ts-eslint';
 import type {
   ParserServices,
+  ParserServicesWithNativeTypeInformation,
   ParserServicesWithTypeInformation,
 } from '../ts-estree';
 
@@ -94,6 +95,26 @@ export function getParserServices(
   return context.sourceCode.parserServices as ParserServices;
 }
 /* eslint-enable @typescript-eslint/unified-signatures */
+
+/**
+ * Retrieve type-aware parser services backed by tsgo, including direct access
+ * to tsgo's own API. This **_will_** throw if the file wasn't parsed by the tsgo
+ * backend, so only call it from a rule's `create.tsgo` implementation.
+ */
+export function getNativeParserServices<
+  MessageIds extends string,
+  Options extends readonly unknown[],
+>(
+  context: Readonly<TSESLint.RuleContext<MessageIds, Options>>,
+): ParserServicesWithNativeTypeInformation {
+  const services = getParserServices(context);
+  if (services.backend !== 'tsgo') {
+    throw new Error(
+      `Expected parser services from the tsgo backend, but this file was parsed by the ${String(services.backend)} backend.`,
+    );
+  }
+  return services as ParserServicesWithNativeTypeInformation;
+}
 
 function throwError(parser: string | undefined): never {
   const messages = [

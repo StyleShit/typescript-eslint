@@ -31,31 +31,33 @@ export default createRule({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create: context => {
-    return {
-      Program(): void {
-        const comments = context.sourceCode.getAllComments();
-        comments.forEach(c => {
-          if (ENABLE_DISABLE_REGEX.test(c.value)) {
-            context.report({
-              node: c,
-              messageId: 'commentDetected',
-              data: { text: toText(c.value, c.type) },
-              fix(fixer) {
-                const rangeStart = context.sourceCode.getIndexFromLoc({
-                  column: c.loc.start.column > 0 ? c.loc.start.column - 1 : 0,
-                  line: c.loc.start.line,
-                });
-                const rangeEnd = context.sourceCode.getIndexFromLoc({
-                  column: c.loc.end.column,
-                  line: c.loc.end.line,
-                });
-                return fixer.removeRange([rangeStart, rangeEnd + 1]);
-              },
-            });
-          }
-        });
-      },
-    };
+  create: {
+    default: context => {
+      return {
+        Program(): void {
+          const comments = context.sourceCode.getAllComments();
+          comments.forEach(c => {
+            if (ENABLE_DISABLE_REGEX.test(c.value)) {
+              context.report({
+                node: c,
+                messageId: 'commentDetected',
+                data: { text: toText(c.value, c.type) },
+                fix(fixer) {
+                  const rangeStart = context.sourceCode.getIndexFromLoc({
+                    column: c.loc.start.column > 0 ? c.loc.start.column - 1 : 0,
+                    line: c.loc.start.line,
+                  });
+                  const rangeEnd = context.sourceCode.getIndexFromLoc({
+                    column: c.loc.end.column,
+                    line: c.loc.end.line,
+                  });
+                  return fixer.removeRange([rangeStart, rangeEnd + 1]);
+                },
+              });
+            }
+          });
+        },
+      };
+    },
   },
 });

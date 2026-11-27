@@ -25,22 +25,24 @@ export default createRule({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create(context) {
-    return {
-      ForInStatement(node): void {
-        const services = getParserServices(context);
-        const checker = services.program.getTypeChecker();
+  create: {
+    default(context) {
+      return {
+        ForInStatement(node): void {
+          const services = getParserServices(context);
+          const checker = services.program.getTypeChecker();
 
-        const type = getConstrainedTypeAtLocation(services, node.right);
+          const type = getConstrainedTypeAtLocation(services, node.right);
 
-        if (isArrayLike(checker, type)) {
-          context.report({
-            loc: getForStatementHeadLoc(context.sourceCode, node),
-            messageId: 'forInViolation',
-          });
-        }
-      },
-    };
+          if (isArrayLike(checker, type)) {
+            context.report({
+              loc: getForStatementHeadLoc(context.sourceCode, node),
+              messageId: 'forInViolation',
+            });
+          }
+        },
+      };
+    },
   },
 });
 

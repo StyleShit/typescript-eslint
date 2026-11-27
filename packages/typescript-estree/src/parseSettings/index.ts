@@ -28,7 +28,7 @@ export interface MutableParseSettings {
   allowInvalidAST: boolean;
 
   /**
-   * Which TypeScript implementation powers type information: classic TypeScript or the experimental tsgo.
+   * Which TypeScript implementation powers type information: classic TypeScript or tsgo.
    */
   backend: 'classic' | 'tsgo';
 

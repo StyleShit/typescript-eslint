@@ -38,203 +38,212 @@ export default createRule({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create(context) {
-    const parserServices = getParserServices(context);
+  create: {
+    default(context) {
+      const parserServices = getParserServices(context);
 
-    function checkNode(node: TSESTree.FunctionLike, descriptor: string): void {
-      const tsNode = parserServices.esTreeNodeToTSNodeMap.get(
-        node,
-      ) as NodeWithTypeParameters;
+      function checkNode(
+        node: TSESTree.FunctionLike,
+        descriptor: string,
+      ): void {
+        const tsNode = parserServices.esTreeNodeToTSNodeMap.get(
+          node,
+        ) as NodeWithTypeParameters;
 
-      const checker = parserServices.program.getTypeChecker();
-      let counts: Map<ts.Identifier, number> | undefined;
+        const checker = parserServices.program.getTypeChecker();
+        let counts: Map<ts.Identifier, number> | undefined;
 
-      // Get the scope in which the type parameters are declared.
-      const scope = context.sourceCode.getScope(node);
+        // Get the scope in which the type parameters are declared.
+        const scope = context.sourceCode.getScope(node);
 
-      for (const typeParameter of tsNode.typeParameters) {
-        const esTypeParameter =
-          parserServices.tsNodeToESTreeNodeMap.get<TSESTree.TSTypeParameter>(
-            typeParameter,
+        for (const typeParameter of tsNode.typeParameters) {
+          const esTypeParameter =
+            parserServices.tsNodeToESTreeNodeMap.get<TSESTree.TSTypeParameter>(
+              typeParameter,
+            );
+
+          const smTypeParameterVariable = nullThrows(
+            (() => {
+              const variable = scope.set.get(esTypeParameter.name.name);
+              return variable?.isTypeVariable ? variable : undefined;
+            })(),
+            "Type parameter should be present in scope's variables.",
           );
 
-        const smTypeParameterVariable = nullThrows(
-          (() => {
-            const variable = scope.set.get(esTypeParameter.name.name);
-            return variable?.isTypeVariable ? variable : undefined;
-          })(),
-          "Type parameter should be present in scope's variables.",
-        );
+          // Quick path: if the type parameter is used multiple times in the AST,
+          // we don't need to dip into types to know it's repeated.
+          if (
+            isTypeParameterRepeatedInAST(
+              esTypeParameter,
+              smTypeParameterVariable.references,
+              node.body?.range[0] ?? node.returnType?.range[1],
+            )
+          ) {
+            continue;
+          }
 
-        // Quick path: if the type parameter is used multiple times in the AST,
-        // we don't need to dip into types to know it's repeated.
-        if (
-          isTypeParameterRepeatedInAST(
-            esTypeParameter,
-            smTypeParameterVariable.references,
-            node.body?.range[0] ?? node.returnType?.range[1],
-          )
-        ) {
-          continue;
-        }
+          // For any inferred types, we have to dip into type checking.
+          counts ??= countTypeParameterUsage(checker, tsNode);
+          const identifierCounts = counts.get(typeParameter.name);
+          if (!identifierCounts || identifierCounts > 2) {
+            continue;
+          }
 
-        // For any inferred types, we have to dip into type checking.
-        counts ??= countTypeParameterUsage(checker, tsNode);
-        const identifierCounts = counts.get(typeParameter.name);
-        if (!identifierCounts || identifierCounts > 2) {
-          continue;
-        }
+          context.report({
+            node: esTypeParameter,
+            messageId: 'sole',
+            data: {
+              name: typeParameter.name.text,
+              descriptor,
+              uses: identifierCounts === 1 ? 'never used' : 'used only once',
+            },
+            suggest: [
+              {
+                messageId: 'replaceUsagesWithConstraint',
+                *fix(fixer): Generator<TSESLint.RuleFix> {
+                  // Replace all the usages of the type parameter with the constraint...
 
-        context.report({
-          node: esTypeParameter,
-          messageId: 'sole',
-          data: {
-            name: typeParameter.name.text,
-            descriptor,
-            uses: identifierCounts === 1 ? 'never used' : 'used only once',
-          },
-          suggest: [
-            {
-              messageId: 'replaceUsagesWithConstraint',
-              *fix(fixer): Generator<TSESLint.RuleFix> {
-                // Replace all the usages of the type parameter with the constraint...
+                  const constraint = esTypeParameter.constraint;
+                  // special case - a constraint of 'any' actually acts like 'unknown'
+                  const constraintText =
+                    constraint != null &&
+                    constraint.type !== AST_NODE_TYPES.TSAnyKeyword
+                      ? context.sourceCode.getText(constraint)
+                      : 'unknown';
+                  for (const reference of smTypeParameterVariable.references) {
+                    if (reference.isTypeReference) {
+                      const referenceNode = reference.identifier;
+                      const isWeakPrecedenceConstraint =
+                        constraint?.type === AST_NODE_TYPES.TSUnionType ||
+                        constraint?.type ===
+                          AST_NODE_TYPES.TSIntersectionType ||
+                        constraint?.type === AST_NODE_TYPES.TSConditionalType ||
+                        constraint?.type === AST_NODE_TYPES.TSTypeOperator ||
+                        constraint?.type === AST_NODE_TYPES.TSFunctionType ||
+                        constraint?.type === AST_NODE_TYPES.TSConstructorType;
 
-                const constraint = esTypeParameter.constraint;
-                // special case - a constraint of 'any' actually acts like 'unknown'
-                const constraintText =
-                  constraint != null &&
-                  constraint.type !== AST_NODE_TYPES.TSAnyKeyword
-                    ? context.sourceCode.getText(constraint)
-                    : 'unknown';
-                for (const reference of smTypeParameterVariable.references) {
-                  if (reference.isTypeReference) {
-                    const referenceNode = reference.identifier;
-                    const isWeakPrecedenceConstraint =
-                      constraint?.type === AST_NODE_TYPES.TSUnionType ||
-                      constraint?.type === AST_NODE_TYPES.TSIntersectionType ||
-                      constraint?.type === AST_NODE_TYPES.TSConditionalType ||
-                      constraint?.type === AST_NODE_TYPES.TSTypeOperator ||
-                      constraint?.type === AST_NODE_TYPES.TSFunctionType ||
-                      constraint?.type === AST_NODE_TYPES.TSConstructorType;
-
-                    const grandparent = nullThrows(
-                      referenceNode.parent.parent,
-                      NullThrowsReasons.MissingParent,
-                    );
-
-                    const isWeakPrecedenceTypeParent =
-                      grandparent.type === AST_NODE_TYPES.TSArrayType ||
-                      grandparent.type === AST_NODE_TYPES.TSIndexedAccessType ||
-                      grandparent.type === AST_NODE_TYPES.TSIntersectionType ||
-                      grandparent.type === AST_NODE_TYPES.TSUnionType ||
-                      grandparent.type === AST_NODE_TYPES.TSConditionalType ||
-                      grandparent.type === AST_NODE_TYPES.TSTypeOperator ||
-                      grandparent.type === AST_NODE_TYPES.TSOptionalType;
-
-                    if (
-                      isWeakPrecedenceConstraint &&
-                      isWeakPrecedenceTypeParent
-                    ) {
-                      yield fixer.replaceText(
-                        referenceNode.parent,
-                        `(${constraintText})`,
+                      const grandparent = nullThrows(
+                        referenceNode.parent.parent,
+                        NullThrowsReasons.MissingParent,
                       );
-                    } else {
-                      yield fixer.replaceText(
-                        referenceNode.parent,
-                        constraintText,
-                      );
+
+                      const isWeakPrecedenceTypeParent =
+                        grandparent.type === AST_NODE_TYPES.TSArrayType ||
+                        grandparent.type ===
+                          AST_NODE_TYPES.TSIndexedAccessType ||
+                        grandparent.type ===
+                          AST_NODE_TYPES.TSIntersectionType ||
+                        grandparent.type === AST_NODE_TYPES.TSUnionType ||
+                        grandparent.type === AST_NODE_TYPES.TSConditionalType ||
+                        grandparent.type === AST_NODE_TYPES.TSTypeOperator ||
+                        grandparent.type === AST_NODE_TYPES.TSOptionalType;
+
+                      if (
+                        isWeakPrecedenceConstraint &&
+                        isWeakPrecedenceTypeParent
+                      ) {
+                        yield fixer.replaceText(
+                          referenceNode.parent,
+                          `(${constraintText})`,
+                        );
+                      } else {
+                        yield fixer.replaceText(
+                          referenceNode.parent,
+                          constraintText,
+                        );
+                      }
                     }
                   }
-                }
 
-                // ...and remove the type parameter itself from the declaration.
+                  // ...and remove the type parameter itself from the declaration.
 
-                const typeParamsNode = nullThrows(
-                  node.typeParameters,
-                  'node should have type parameters',
-                );
+                  const typeParamsNode = nullThrows(
+                    node.typeParameters,
+                    'node should have type parameters',
+                  );
 
-                // We are assuming at this point that the reported type parameter
-                // is present in the inspected node's type parameters.
-                if (typeParamsNode.params.length === 1) {
-                  // Remove the whole <T> generic syntax if we're removing the only type parameter in the list.
-                  yield fixer.remove(typeParamsNode);
-                } else {
-                  const index = typeParamsNode.params.indexOf(esTypeParameter);
-
-                  if (index === 0) {
-                    const commaAfter = nullThrows(
-                      context.sourceCode.getTokenAfter(
-                        esTypeParameter,
-                        token => token.value === ',',
-                      ),
-                      NullThrowsReasons.MissingToken(
-                        'comma',
-                        'type parameter list',
-                      ),
-                    );
-
-                    const tokenAfterComma = nullThrows(
-                      context.sourceCode.getTokenAfter(commaAfter, {
-                        includeComments: true,
-                      }),
-                      NullThrowsReasons.MissingToken(
-                        'token',
-                        'type parameter list',
-                      ),
-                    );
-
-                    yield fixer.removeRange([
-                      esTypeParameter.range[0],
-                      tokenAfterComma.range[0],
-                    ]);
+                  // We are assuming at this point that the reported type parameter
+                  // is present in the inspected node's type parameters.
+                  if (typeParamsNode.params.length === 1) {
+                    // Remove the whole <T> generic syntax if we're removing the only type parameter in the list.
+                    yield fixer.remove(typeParamsNode);
                   } else {
-                    const commaBefore = nullThrows(
-                      context.sourceCode.getTokenBefore(
-                        esTypeParameter,
-                        token => token.value === ',',
-                      ),
-                      NullThrowsReasons.MissingToken(
-                        'comma',
-                        'type parameter list',
-                      ),
-                    );
+                    const index =
+                      typeParamsNode.params.indexOf(esTypeParameter);
 
-                    yield fixer.removeRange([
-                      commaBefore.range[0],
-                      esTypeParameter.range[1],
-                    ]);
+                    if (index === 0) {
+                      const commaAfter = nullThrows(
+                        context.sourceCode.getTokenAfter(
+                          esTypeParameter,
+                          token => token.value === ',',
+                        ),
+                        NullThrowsReasons.MissingToken(
+                          'comma',
+                          'type parameter list',
+                        ),
+                      );
+
+                      const tokenAfterComma = nullThrows(
+                        context.sourceCode.getTokenAfter(commaAfter, {
+                          includeComments: true,
+                        }),
+                        NullThrowsReasons.MissingToken(
+                          'token',
+                          'type parameter list',
+                        ),
+                      );
+
+                      yield fixer.removeRange([
+                        esTypeParameter.range[0],
+                        tokenAfterComma.range[0],
+                      ]);
+                    } else {
+                      const commaBefore = nullThrows(
+                        context.sourceCode.getTokenBefore(
+                          esTypeParameter,
+                          token => token.value === ',',
+                        ),
+                        NullThrowsReasons.MissingToken(
+                          'comma',
+                          'type parameter list',
+                        ),
+                      );
+
+                      yield fixer.removeRange([
+                        commaBefore.range[0],
+                        esTypeParameter.range[1],
+                      ]);
+                    }
                   }
-                }
+                },
               },
-            },
-          ],
-        });
+            ],
+          });
+        }
       }
-    }
 
-    return {
-      [[
-        'ArrowFunctionExpression[typeParameters]',
-        'FunctionDeclaration[typeParameters]',
-        'FunctionExpression[typeParameters]',
-        'TSCallSignatureDeclaration[typeParameters]',
-        'TSConstructorType[typeParameters]',
-        'TSDeclareFunction[typeParameters]',
-        'TSEmptyBodyFunctionExpression[typeParameters]',
-        'TSFunctionType[typeParameters]',
-        'TSMethodSignature[typeParameters]',
-      ].join(', ')](node: TSESTree.FunctionLike): void {
-        checkNode(node, 'function');
-      },
-      [[
-        'ClassDeclaration[typeParameters]',
-        'ClassExpression[typeParameters]',
-      ].join(', ')](node: TSESTree.FunctionLike): void {
-        checkNode(node, 'class');
-      },
-    };
+      return {
+        [[
+          'ArrowFunctionExpression[typeParameters]',
+          'FunctionDeclaration[typeParameters]',
+          'FunctionExpression[typeParameters]',
+          'TSCallSignatureDeclaration[typeParameters]',
+          'TSConstructorType[typeParameters]',
+          'TSDeclareFunction[typeParameters]',
+          'TSEmptyBodyFunctionExpression[typeParameters]',
+          'TSFunctionType[typeParameters]',
+          'TSMethodSignature[typeParameters]',
+        ].join(', ')](node: TSESTree.FunctionLike): void {
+          checkNode(node, 'function');
+        },
+        [[
+          'ClassDeclaration[typeParameters]',
+          'ClassExpression[typeParameters]',
+        ].join(', ')](node: TSESTree.FunctionLike): void {
+          checkNode(node, 'class');
+        },
+      };
+    },
   },
 });
 
@@ -382,7 +391,8 @@ function collectTypeParameterUsageCounts(
 
     if (tsutils.isTypeParameter(type)) {
       const declaration = type.getSymbol()?.getDeclarations()?.[0] as
-        ts.TypeParameterDeclaration | undefined;
+        | ts.TypeParameterDeclaration
+        | undefined;
 
       if (declaration) {
         incrementIdentifierCount(declaration.name, assumeMultipleUses);

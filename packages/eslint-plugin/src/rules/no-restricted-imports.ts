@@ -256,137 +256,142 @@ export default createRule<Options, MessageIds>({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create(context) {
-    const rules = baseRule.create(context);
-    const { options } = context;
+  create: {
+    default(context) {
+      const rules = baseRule.create(context);
+      const { options } = context;
 
-    if (!shouldCreateRule(rules, options)) {
-      return {};
-    }
-
-    const restrictedPaths = getRestrictedPaths(options);
-    const allowedTypeImportPathNameSet = new Set<string>();
-    for (const restrictedPath of restrictedPaths) {
-      if (
-        typeof restrictedPath === 'object' &&
-        restrictedPath.allowTypeImports
-      ) {
-        allowedTypeImportPathNameSet.add(restrictedPath.name);
+      if (!shouldCreateRule(rules, options)) {
+        return {};
       }
-    }
-    function isAllowedTypeImportPath(importSource: string): boolean {
-      return allowedTypeImportPathNameSet.has(importSource);
-    }
 
-    const restrictedPatterns = getRestrictedPatterns(options);
-    const allowedImportTypeMatchers: Ignore[] = [];
-    const allowedImportTypeRegexMatchers: RegExp[] = [];
-    for (const restrictedPattern of restrictedPatterns) {
-      if (
-        typeof restrictedPattern === 'object' &&
-        restrictedPattern.allowTypeImports
-      ) {
-        // Following how ignore is configured in the base rule
-        if (restrictedPattern.group) {
-          allowedImportTypeMatchers.push(
-            ignore({
-              allowRelativePaths: true,
-              ignoreCase: !restrictedPattern.caseSensitive,
-            }).add(restrictedPattern.group),
-          );
-        }
-        if (restrictedPattern.regex) {
-          allowedImportTypeRegexMatchers.push(
-            new RegExp(
-              restrictedPattern.regex,
-              restrictedPattern.caseSensitive ? 'u' : 'iu',
-            ),
-          );
-        }
-      }
-    }
-    function isAllowedTypeImportPattern(importSource: string): boolean {
-      return (
-        // As long as there's one matching pattern that allows type import
-        allowedImportTypeMatchers.some(matcher =>
-          matcher.ignores(importSource),
-        ) ||
-        allowedImportTypeRegexMatchers.some(regex => regex.test(importSource))
-      );
-    }
-
-    function checkImportNode(node: TSESTree.ImportDeclaration): void {
-      if (
-        node.importKind === 'type' ||
-        (node.specifiers.length > 0 &&
-          node.specifiers.every(
-            specifier =>
-              specifier.type === AST_NODE_TYPES.ImportSpecifier &&
-              specifier.importKind === 'type',
-          ))
-      ) {
-        const importSource = node.source.value.trim();
+      const restrictedPaths = getRestrictedPaths(options);
+      const allowedTypeImportPathNameSet = new Set<string>();
+      for (const restrictedPath of restrictedPaths) {
         if (
-          !isAllowedTypeImportPath(importSource) &&
-          !isAllowedTypeImportPattern(importSource)
+          typeof restrictedPath === 'object' &&
+          restrictedPath.allowTypeImports
         ) {
-          return rules.ImportDeclaration(node);
+          allowedTypeImportPathNameSet.add(restrictedPath.name);
         }
-      } else {
-        return rules.ImportDeclaration(node);
       }
-    }
+      function isAllowedTypeImportPath(importSource: string): boolean {
+        return allowedTypeImportPathNameSet.has(importSource);
+      }
 
-    return {
-      ExportAllDeclaration: rules.ExportAllDeclaration,
-      'ExportNamedDeclaration[source]'(
-        node: {
-          source: NonNullable<TSESTree.ExportNamedDeclaration['source']>;
-        } & TSESTree.ExportNamedDeclaration,
-      ): void {
+      const restrictedPatterns = getRestrictedPatterns(options);
+      const allowedImportTypeMatchers: Ignore[] = [];
+      const allowedImportTypeRegexMatchers: RegExp[] = [];
+      for (const restrictedPattern of restrictedPatterns) {
         if (
-          node.exportKind === 'type' ||
+          typeof restrictedPattern === 'object' &&
+          restrictedPattern.allowTypeImports
+        ) {
+          // Following how ignore is configured in the base rule
+          if (restrictedPattern.group) {
+            allowedImportTypeMatchers.push(
+              ignore({
+                allowRelativePaths: true,
+                ignoreCase: !restrictedPattern.caseSensitive,
+              }).add(restrictedPattern.group),
+            );
+          }
+          if (restrictedPattern.regex) {
+            allowedImportTypeRegexMatchers.push(
+              new RegExp(
+                restrictedPattern.regex,
+                restrictedPattern.caseSensitive ? 'u' : 'iu',
+              ),
+            );
+          }
+        }
+      }
+      function isAllowedTypeImportPattern(importSource: string): boolean {
+        return (
+          // As long as there's one matching pattern that allows type import
+          allowedImportTypeMatchers.some(matcher =>
+            matcher.ignores(importSource),
+          ) ||
+          allowedImportTypeRegexMatchers.some(regex => regex.test(importSource))
+        );
+      }
+
+      function checkImportNode(node: TSESTree.ImportDeclaration): void {
+        if (
+          node.importKind === 'type' ||
           (node.specifiers.length > 0 &&
-            node.specifiers.every(specifier => specifier.exportKind === 'type'))
+            node.specifiers.every(
+              specifier =>
+                specifier.type === AST_NODE_TYPES.ImportSpecifier &&
+                specifier.importKind === 'type',
+            ))
         ) {
           const importSource = node.source.value.trim();
           if (
             !isAllowedTypeImportPath(importSource) &&
             !isAllowedTypeImportPattern(importSource)
           ) {
-            return rules.ExportNamedDeclaration(node);
+            return rules.ImportDeclaration(node);
           }
         } else {
-          return rules.ExportNamedDeclaration(node);
+          return rules.ImportDeclaration(node);
         }
-      },
-      ImportDeclaration: checkImportNode,
-      TSImportEqualsDeclaration(
-        node: TSESTree.TSImportEqualsDeclaration,
-      ): void {
-        if (
-          node.moduleReference.type === AST_NODE_TYPES.TSExternalModuleReference
-        ) {
-          const synthesizedImport: TSESTree.ImportDeclaration = {
-            ...node,
-            type: AST_NODE_TYPES.ImportDeclaration,
-            // eslint-disable-next-line @typescript-eslint/no-deprecated -- `assertions` is a required property of `ImportDeclaration` until it is removed
-            assertions: [],
-            attributes: [],
-            source: node.moduleReference.expression,
-            specifiers: [
-              {
-                ...node.id,
-                type: AST_NODE_TYPES.ImportDefaultSpecifier,
-                local: node.id,
-                // @ts-expect-error -- parent types are incompatible but it's fine for the purposes of this extension
-                parent: node.id.parent,
-              },
-            ],
-          };
-          return checkImportNode(synthesizedImport);
-        }
-      },
-    };
+      }
+
+      return {
+        ExportAllDeclaration: rules.ExportAllDeclaration,
+        'ExportNamedDeclaration[source]'(
+          node: {
+            source: NonNullable<TSESTree.ExportNamedDeclaration['source']>;
+          } & TSESTree.ExportNamedDeclaration,
+        ): void {
+          if (
+            node.exportKind === 'type' ||
+            (node.specifiers.length > 0 &&
+              node.specifiers.every(
+                specifier => specifier.exportKind === 'type',
+              ))
+          ) {
+            const importSource = node.source.value.trim();
+            if (
+              !isAllowedTypeImportPath(importSource) &&
+              !isAllowedTypeImportPattern(importSource)
+            ) {
+              return rules.ExportNamedDeclaration(node);
+            }
+          } else {
+            return rules.ExportNamedDeclaration(node);
+          }
+        },
+        ImportDeclaration: checkImportNode,
+        TSImportEqualsDeclaration(
+          node: TSESTree.TSImportEqualsDeclaration,
+        ): void {
+          if (
+            node.moduleReference.type ===
+            AST_NODE_TYPES.TSExternalModuleReference
+          ) {
+            const synthesizedImport: TSESTree.ImportDeclaration = {
+              ...node,
+              type: AST_NODE_TYPES.ImportDeclaration,
+              // eslint-disable-next-line @typescript-eslint/no-deprecated -- `assertions` is a required property of `ImportDeclaration` until it is removed
+              assertions: [],
+              attributes: [],
+              source: node.moduleReference.expression,
+              specifiers: [
+                {
+                  ...node.id,
+                  type: AST_NODE_TYPES.ImportDefaultSpecifier,
+                  local: node.id,
+                  // @ts-expect-error -- parent types are incompatible but it's fine for the purposes of this extension
+                  parent: node.id.parent,
+                },
+              ],
+            };
+            return checkImportNode(synthesizedImport);
+          }
+        },
+      };
+    },
   },
 });

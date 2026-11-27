@@ -73,76 +73,81 @@ export default createRule<Options, MessageIds>({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions,
-  create(context, [options]) {
-    const rules = baseRule.create(context);
+  create: {
+    default(context, [options]) {
+      const rules = baseRule.create(context);
 
-    const ignored = new Set((options.ignore ?? []).map(normalizeIgnoreValue));
+      const ignored = new Set((options.ignore ?? []).map(normalizeIgnoreValue));
 
-    return {
-      Literal(node): void {
-        // If it’s not a numeric literal we’re not interested
-        if (typeof node.value !== 'number' && typeof node.value !== 'bigint') {
-          return;
-        }
-
-        // This will be `true` if we’re configured to ignore this case (eg. it’s
-        // an enum and `ignoreEnums` is `true`). It will be `false` if we’re not
-        // configured to ignore this case. It will remain `undefined` if this is
-        // not one of our exception cases, and we’ll fall back to the base rule.
-        let isAllowed: boolean | undefined;
-
-        // Check if the node is ignored
-        if (ignored.has(normalizeLiteralValue(node, node.value))) {
-          isAllowed = true;
-        }
-        // Check if the node is a TypeScript enum declaration
-        else if (isParentTSEnumDeclaration(node)) {
-          isAllowed = options.ignoreEnums === true;
-        }
-        // Check TypeScript specific nodes for Numeric Literal
-        else if (isTSNumericLiteralType(node)) {
-          isAllowed = options.ignoreNumericLiteralTypes === true;
-        }
-        // Check if the node is a type index
-        else if (isAncestorTSIndexedAccessType(node)) {
-          isAllowed = options.ignoreTypeIndexes === true;
-        }
-        // Check if the node is a readonly class property
-        else if (isParentTSReadonlyPropertyDefinition(node)) {
-          isAllowed = options.ignoreReadonlyClassProperties === true;
-        }
-
-        // If we’ve hit a case where the ignore option is true we can return now
-        if (isAllowed === true) {
-          return;
-        }
-        // If the ignore option is *not* set we can report it now
-        if (isAllowed === false) {
-          let fullNumberNode: TSESTree.Literal | TSESTree.UnaryExpression =
-            node;
-          let raw = node.raw;
+      return {
+        Literal(node): void {
+          // If it’s not a numeric literal we’re not interested
           if (
-            node.parent.type === AST_NODE_TYPES.UnaryExpression &&
-            // the base rule only shows the operator for negative numbers
-            // https://github.com/eslint/eslint/blob/9dfc8501fb1956c90dc11e6377b4cb38a6bea65d/lib/rules/no-magic-numbers.js#L126
-            node.parent.operator === '-'
+            typeof node.value !== 'number' &&
+            typeof node.value !== 'bigint'
           ) {
-            fullNumberNode = node.parent;
-            raw = `${node.parent.operator}${node.raw}`;
+            return;
           }
-          context.report({
-            node: fullNumberNode,
-            messageId: 'noMagic',
-            data: { raw },
-          });
 
-          return;
-        }
+          // This will be `true` if we’re configured to ignore this case (eg. it’s
+          // an enum and `ignoreEnums` is `true`). It will be `false` if we’re not
+          // configured to ignore this case. It will remain `undefined` if this is
+          // not one of our exception cases, and we’ll fall back to the base rule.
+          let isAllowed: boolean | undefined;
 
-        // Let the base rule deal with the rest
-        rules.Literal(node);
-      },
-    };
+          // Check if the node is ignored
+          if (ignored.has(normalizeLiteralValue(node, node.value))) {
+            isAllowed = true;
+          }
+          // Check if the node is a TypeScript enum declaration
+          else if (isParentTSEnumDeclaration(node)) {
+            isAllowed = options.ignoreEnums === true;
+          }
+          // Check TypeScript specific nodes for Numeric Literal
+          else if (isTSNumericLiteralType(node)) {
+            isAllowed = options.ignoreNumericLiteralTypes === true;
+          }
+          // Check if the node is a type index
+          else if (isAncestorTSIndexedAccessType(node)) {
+            isAllowed = options.ignoreTypeIndexes === true;
+          }
+          // Check if the node is a readonly class property
+          else if (isParentTSReadonlyPropertyDefinition(node)) {
+            isAllowed = options.ignoreReadonlyClassProperties === true;
+          }
+
+          // If we’ve hit a case where the ignore option is true we can return now
+          if (isAllowed === true) {
+            return;
+          }
+          // If the ignore option is *not* set we can report it now
+          if (isAllowed === false) {
+            let fullNumberNode: TSESTree.Literal | TSESTree.UnaryExpression =
+              node;
+            let raw = node.raw;
+            if (
+              node.parent.type === AST_NODE_TYPES.UnaryExpression &&
+              // the base rule only shows the operator for negative numbers
+              // https://github.com/eslint/eslint/blob/9dfc8501fb1956c90dc11e6377b4cb38a6bea65d/lib/rules/no-magic-numbers.js#L126
+              node.parent.operator === '-'
+            ) {
+              fullNumberNode = node.parent;
+              raw = `${node.parent.operator}${node.raw}`;
+            }
+            context.report({
+              node: fullNumberNode,
+              messageId: 'noMagic',
+              data: { raw },
+            });
+
+            return;
+          }
+
+          // Let the base rule deal with the rest
+          rules.Literal(node);
+        },
+      };
+    },
   },
 });
 

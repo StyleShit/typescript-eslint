@@ -39,6 +39,11 @@ export type EcmaVersion =
 export type SourceTypeClassic = 'module' | 'script';
 export type SourceType = 'commonjs' | SourceTypeClassic;
 
+/**
+ * A TypeScript implementation that can power type information.
+ */
+export type TypeScriptBackend = 'classic' | 'tsgo';
+
 export type JSDocParsingMode = 'all' | 'none' | 'type-info';
 
 /**
@@ -46,19 +51,18 @@ export type JSDocParsingMode = 'all' | 'none' | 'type-info';
  */
 export interface ProjectServiceOptions {
   /**
-   * Set to `'tsgo'` to power type information with the experimental
-   * TypeScript 7.1 (tsgo) backend instead of the classic TypeScript API.
-   *
-   * @experimental This is not part of the public API. It may change or be
-   * removed in any release, including a patch.
-   */
-  EXPERIMENTAL_backend?: 'tsgo';
-
-  /**
    * Globs of files to allow running with the default project compiler options
    * despite not being matched by the project service.
    */
   allowDefaultProject?: string[];
+
+  /**
+   * Which TypeScript implementation powers type information:
+   * - `'classic'`: the TypeScript 6 JavaScript API
+   * - `'tsgo'`: TypeScript 7.1's native implementation (tsgo), over IPC
+   * @default 'classic'
+   */
+  backend?: TypeScriptBackend;
 
   /**
    * Path to a TSConfig to use instead of TypeScript's default project configuration.

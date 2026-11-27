@@ -4,7 +4,16 @@ import type {
   JSDocParsingMode,
   ProjectServiceOptions,
   SourceType,
+  TypeScriptBackend,
 } from '@typescript-eslint/types';
+import type {
+  Node as NativeNode,
+  SourceFile as NativeSourceFile,
+} from '@typescript/native/ast';
+import type {
+  Checker as NativeChecker,
+  Program as NativeProgram,
+} from '@typescript/native/sync';
 import type * as ts from 'typescript';
 
 import type { TSESTree, TSESTreeToTSNode, TSNode, TSToken } from './ts-estree';
@@ -245,6 +254,11 @@ export interface ParserWeakMapESTreeToTSNode<
 }
 
 export interface ParserServicesBase {
+  /**
+   * Which TypeScript implementation produced these services.
+   * Rules can read this to pick a backend-specific implementation.
+   */
+  backend: TypeScriptBackend;
   emitDecoratorMetadata: boolean | undefined;
   experimentalDecorators: boolean | undefined;
   isolatedDeclarations: boolean | undefined;
@@ -267,6 +281,26 @@ export interface ParserServicesWithTypeInformation
     node: TSESTree.Node,
   ) => ts.Type;
   program: ts.Program;
+}
+/**
+ * Direct access to tsgo's own API, for rules that want to skip the classic
+ * compatibility adapters (for example to batch checker requests over IPC).
+ *
+ * Native nodes, types and symbols are not interchangeable with the classic
+ * `ts.*` objects returned by the rest of the parser services, and their flag
+ * enums have different values: import flags from `@typescript/native/sync`.
+ */
+export interface NativeParserServices {
+  checker: NativeChecker;
+  /** Maps an ESTree node to the tsgo node it was converted from. */
+  getNativeNode: (node: TSESTree.Node) => NativeNode;
+  program: NativeProgram;
+  sourceFile: NativeSourceFile;
+}
+export interface ParserServicesWithNativeTypeInformation
+  extends ParserServicesWithTypeInformation {
+  backend: 'tsgo';
+  native: NativeParserServices;
 }
 export interface ParserServicesWithoutTypeInformation
   extends ParserServicesNodeMaps, ParserServicesBase {

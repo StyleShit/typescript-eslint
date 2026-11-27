@@ -88,6 +88,7 @@ export function createParser(
         ast: converted.estree,
         scopeManager,
         services: {
+          backend: 'classic',
           emitDecoratorMetadata: compilerOptions.emitDecoratorMetadata ?? false,
           esTreeNodeToTSNodeMap: converted.astMaps.esTreeNodeToTSNodeMap,
           experimentalDecorators:

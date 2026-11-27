@@ -107,393 +107,400 @@ export default createRule<Options, MessageId>({
     },
   ],
 
-  create(context, [options]) {
-    const services = getParserServices(context);
+  create: {
+    default(context, [options]) {
+      const services = getParserServices(context);
 
-    return {
-      'AwaitExpression, CallExpression, TaggedTemplateExpression'(
-        node:
-          | TSESTree.AwaitExpression
-          | TSESTree.CallExpression
-          | TSESTree.TaggedTemplateExpression,
-      ): void {
-        const invalidAncestor = findInvalidAncestor(node);
-        if (invalidAncestor == null) {
-          // void expression is in valid position
-          return;
-        }
-
-        const type = getConstrainedTypeAtLocation(services, node);
-        if (!tsutils.isTypeFlagSet(type, ts.TypeFlags.VoidLike)) {
-          // not a void expression
-          return;
-        }
-
-        const wrapVoidFix = (fixer: TSESLint.RuleFixer): TSESLint.RuleFix => {
-          const nodeText = context.sourceCode.getText(node);
-          const newNodeText = `void ${nodeText}`;
-          return fixer.replaceText(node, newNodeText);
-        };
-
-        if (invalidAncestor.type === AST_NODE_TYPES.ArrowFunctionExpression) {
-          // handle arrow function shorthand
-
-          if (options.ignoreVoidReturningFunctions) {
-            const returnsVoid = isVoidReturningFunctionNode(invalidAncestor);
-
-            if (returnsVoid) {
-              return;
-            }
+      return {
+        'AwaitExpression, CallExpression, TaggedTemplateExpression'(
+          node:
+            | TSESTree.AwaitExpression
+            | TSESTree.CallExpression
+            | TSESTree.TaggedTemplateExpression,
+        ): void {
+          const invalidAncestor = findInvalidAncestor(node);
+          if (invalidAncestor == null) {
+            // void expression is in valid position
+            return;
           }
 
-          if (options.ignoreVoidOperator) {
-            // handle wrapping with `void`
-            return context.report({
-              node,
-              messageId: 'invalidVoidExprArrowWrapVoid',
-              fix: wrapVoidFix,
-            });
+          const type = getConstrainedTypeAtLocation(services, node);
+          if (!tsutils.isTypeFlagSet(type, ts.TypeFlags.VoidLike)) {
+            // not a void expression
+            return;
           }
 
-          // handle wrapping with braces
-          const arrowFunction = invalidAncestor;
-          return context.report({
-            node,
-            messageId: 'invalidVoidExprArrow',
-            fix(fixer) {
-              if (!canFix(arrowFunction)) {
-                return null;
-              }
-              const arrowToken = nullThrows(
-                context.sourceCode.getTokenBefore(arrowFunction.body, {
-                  filter: token => token.value === '=>',
-                }),
-                NullThrowsReasons.MissingToken(
-                  'arrow token',
-                  'before arrow function body',
-                ),
-              );
-              return [
-                fixer.replaceTextRange(
-                  [arrowToken.range[1], arrowFunction.body.range[0]],
-                  ' { ',
-                ),
-                fixer.replaceTextRange(
-                  [arrowFunction.body.range[1], arrowFunction.range[1]],
-                  '; }',
-                ),
-              ];
-            },
-          });
-        }
+          const wrapVoidFix = (fixer: TSESLint.RuleFixer): TSESLint.RuleFix => {
+            const nodeText = context.sourceCode.getText(node);
+            const newNodeText = `void ${nodeText}`;
+            return fixer.replaceText(node, newNodeText);
+          };
 
-        if (invalidAncestor.type === AST_NODE_TYPES.ReturnStatement) {
-          // handle return statement
+          if (invalidAncestor.type === AST_NODE_TYPES.ArrowFunctionExpression) {
+            // handle arrow function shorthand
 
-          if (options.ignoreVoidReturningFunctions) {
-            const functionNode = getParentFunctionNode(invalidAncestor);
-
-            if (functionNode) {
-              const returnsVoid = isVoidReturningFunctionNode(functionNode);
+            if (options.ignoreVoidReturningFunctions) {
+              const returnsVoid = isVoidReturningFunctionNode(invalidAncestor);
 
               if (returnsVoid) {
                 return;
               }
             }
-          }
 
-          if (options.ignoreVoidOperator) {
-            // handle wrapping with `void`
+            if (options.ignoreVoidOperator) {
+              // handle wrapping with `void`
+              return context.report({
+                node,
+                messageId: 'invalidVoidExprArrowWrapVoid',
+                fix: wrapVoidFix,
+              });
+            }
+
+            // handle wrapping with braces
+            const arrowFunction = invalidAncestor;
             return context.report({
               node,
-              messageId: 'invalidVoidExprReturnWrapVoid',
-              fix: wrapVoidFix,
+              messageId: 'invalidVoidExprArrow',
+              fix(fixer) {
+                if (!canFix(arrowFunction)) {
+                  return null;
+                }
+                const arrowToken = nullThrows(
+                  context.sourceCode.getTokenBefore(arrowFunction.body, {
+                    filter: token => token.value === '=>',
+                  }),
+                  NullThrowsReasons.MissingToken(
+                    'arrow token',
+                    'before arrow function body',
+                  ),
+                );
+                return [
+                  fixer.replaceTextRange(
+                    [arrowToken.range[1], arrowFunction.body.range[0]],
+                    ' { ',
+                  ),
+                  fixer.replaceTextRange(
+                    [arrowFunction.body.range[1], arrowFunction.range[1]],
+                    '; }',
+                  ),
+                ];
+              },
             });
           }
 
-          if (isFinalReturn(invalidAncestor)) {
-            // remove the `return` keyword
+          if (invalidAncestor.type === AST_NODE_TYPES.ReturnStatement) {
+            // handle return statement
+
+            if (options.ignoreVoidReturningFunctions) {
+              const functionNode = getParentFunctionNode(invalidAncestor);
+
+              if (functionNode) {
+                const returnsVoid = isVoidReturningFunctionNode(functionNode);
+
+                if (returnsVoid) {
+                  return;
+                }
+              }
+            }
+
+            if (options.ignoreVoidOperator) {
+              // handle wrapping with `void`
+              return context.report({
+                node,
+                messageId: 'invalidVoidExprReturnWrapVoid',
+                fix: wrapVoidFix,
+              });
+            }
+
+            if (isFinalReturn(invalidAncestor)) {
+              // remove the `return` keyword
+              return context.report({
+                node,
+                messageId: 'invalidVoidExprReturnLast',
+                fix(fixer) {
+                  if (!canFix(invalidAncestor)) {
+                    return null;
+                  }
+                  const returnValue = invalidAncestor.argument;
+                  const returnValueText =
+                    context.sourceCode.getText(returnValue);
+                  let newReturnStmtText = `${returnValueText};`;
+                  if (isPreventingASI(returnValue)) {
+                    // put a semicolon at the beginning of the line
+                    newReturnStmtText = `;${newReturnStmtText}`;
+                  }
+                  return fixer.replaceText(invalidAncestor, newReturnStmtText);
+                },
+              });
+            }
+
+            // move before the `return` keyword
             return context.report({
               node,
-              messageId: 'invalidVoidExprReturnLast',
+              messageId: 'invalidVoidExprReturn',
               fix(fixer) {
-                if (!canFix(invalidAncestor)) {
-                  return null;
-                }
                 const returnValue = invalidAncestor.argument;
                 const returnValueText = context.sourceCode.getText(returnValue);
-                let newReturnStmtText = `${returnValueText};`;
+                let newReturnStmtText = `${returnValueText}; return;`;
                 if (isPreventingASI(returnValue)) {
                   // put a semicolon at the beginning of the line
                   newReturnStmtText = `;${newReturnStmtText}`;
+                }
+                if (
+                  invalidAncestor.parent.type !== AST_NODE_TYPES.BlockStatement
+                ) {
+                  // e.g. `if (cond) return console.error();`
+                  // add braces if not inside a block
+                  newReturnStmtText = `{ ${newReturnStmtText} }`;
                 }
                 return fixer.replaceText(invalidAncestor, newReturnStmtText);
               },
             });
           }
 
-          // move before the `return` keyword
-          return context.report({
+          // handle generic case
+          if (options.ignoreVoidOperator) {
+            // this would be reported by this rule btw. such irony
+            return context.report({
+              node,
+              messageId: 'invalidVoidExprWrapVoid',
+              suggest: [{ messageId: 'voidExprWrapVoid', fix: wrapVoidFix }],
+            });
+          }
+
+          context.report({
             node,
-            messageId: 'invalidVoidExprReturn',
-            fix(fixer) {
-              const returnValue = invalidAncestor.argument;
-              const returnValueText = context.sourceCode.getText(returnValue);
-              let newReturnStmtText = `${returnValueText}; return;`;
-              if (isPreventingASI(returnValue)) {
-                // put a semicolon at the beginning of the line
-                newReturnStmtText = `;${newReturnStmtText}`;
-              }
-              if (
-                invalidAncestor.parent.type !== AST_NODE_TYPES.BlockStatement
-              ) {
-                // e.g. `if (cond) return console.error();`
-                // add braces if not inside a block
-                newReturnStmtText = `{ ${newReturnStmtText} }`;
-              }
-              return fixer.replaceText(invalidAncestor, newReturnStmtText);
-            },
+            messageId: 'invalidVoidExpr',
           });
+        },
+      };
+
+      type ReturnStatementWithArgument = MakeRequired<
+        TSESTree.ReturnStatement,
+        'argument'
+      >;
+
+      type InvalidAncestor =
+        | Exclude<TSESTree.Node, TSESTree.ReturnStatement>
+        | ReturnStatementWithArgument;
+
+      /**
+       * Inspects the void expression's ancestors and finds closest invalid one.
+       * By default anything other than an ExpressionStatement is invalid.
+       * Parent expressions which can be used for their short-circuiting behavior
+       * are ignored and their parents are checked instead.
+       * @param node The void expression node to check.
+       * @returns Invalid ancestor node if it was found. `null` otherwise.
+       */
+      function findInvalidAncestor(
+        node: NodeWithParent,
+      ): InvalidAncestor | null {
+        const parent = node.parent;
+        if (
+          parent.type === AST_NODE_TYPES.SequenceExpression &&
+          node !== parent.expressions[parent.expressions.length - 1]
+        ) {
+          return null;
         }
 
-        // handle generic case
-        if (options.ignoreVoidOperator) {
-          // this would be reported by this rule btw. such irony
-          return context.report({
-            node,
-            messageId: 'invalidVoidExprWrapVoid',
-            suggest: [{ messageId: 'voidExprWrapVoid', fix: wrapVoidFix }],
-          });
+        if (parent.type === AST_NODE_TYPES.ExpressionStatement) {
+          // e.g. `{ console.log("foo"); }`
+          // this is always valid
+          return null;
         }
 
-        context.report({
-          node,
-          messageId: 'invalidVoidExpr',
-        });
-      },
-    };
+        if (
+          parent.type === AST_NODE_TYPES.LogicalExpression &&
+          parent.right === node
+        ) {
+          // e.g. `x && console.log(x)`
+          // this is valid only if the next ancestor is valid
+          return findInvalidAncestor(parent);
+        }
 
-    type ReturnStatementWithArgument = MakeRequired<
-      TSESTree.ReturnStatement,
-      'argument'
-    >;
+        if (
+          parent.type === AST_NODE_TYPES.ConditionalExpression &&
+          (parent.consequent === node || parent.alternate === node)
+        ) {
+          // e.g. `cond ? console.log(true) : console.log(false)`
+          // this is valid only if the next ancestor is valid
+          return findInvalidAncestor(parent);
+        }
 
-    type InvalidAncestor =
-      | Exclude<TSESTree.Node, TSESTree.ReturnStatement>
-      | ReturnStatementWithArgument;
+        if (
+          parent.type === AST_NODE_TYPES.ArrowFunctionExpression &&
+          // e.g. `() => console.log("foo")`
+          // this is valid with an appropriate option
+          options.ignoreArrowShorthand
+        ) {
+          return null;
+        }
 
-    /**
-     * Inspects the void expression's ancestors and finds closest invalid one.
-     * By default anything other than an ExpressionStatement is invalid.
-     * Parent expressions which can be used for their short-circuiting behavior
-     * are ignored and their parents are checked instead.
-     * @param node The void expression node to check.
-     * @returns Invalid ancestor node if it was found. `null` otherwise.
-     */
-    function findInvalidAncestor(node: NodeWithParent): InvalidAncestor | null {
-      const parent = node.parent;
-      if (
-        parent.type === AST_NODE_TYPES.SequenceExpression &&
-        node !== parent.expressions[parent.expressions.length - 1]
-      ) {
-        return null;
+        if (
+          parent.type === AST_NODE_TYPES.UnaryExpression &&
+          parent.operator === 'void' &&
+          // e.g. `void console.log("foo")`
+          // this is valid with an appropriate option
+          options.ignoreVoidOperator
+        ) {
+          return null;
+        }
+
+        if (parent.type === AST_NODE_TYPES.ChainExpression) {
+          // e.g. `console?.log('foo')`
+          return findInvalidAncestor(parent);
+        }
+
+        // Any other parent is invalid.
+        // We can assume a return statement will have an argument.
+        return parent as InvalidAncestor;
       }
 
-      if (parent.type === AST_NODE_TYPES.ExpressionStatement) {
-        // e.g. `{ console.log("foo"); }`
-        // this is always valid
-        return null;
-      }
+      /** Checks whether the return statement is the last statement in a function body. */
+      function isFinalReturn(node: TSESTree.ReturnStatement): boolean {
+        // the parent must be a block
+        const block = node.parent;
+        if (block.type !== AST_NODE_TYPES.BlockStatement) {
+          // e.g. `if (cond) return;` (not in a block)
+          return false;
+        }
 
-      if (
-        parent.type === AST_NODE_TYPES.LogicalExpression &&
-        parent.right === node
-      ) {
-        // e.g. `x && console.log(x)`
-        // this is valid only if the next ancestor is valid
-        return findInvalidAncestor(parent);
-      }
+        // the block's parent must be a function
+        const blockParent = block.parent;
+        if (
+          ![
+            AST_NODE_TYPES.ArrowFunctionExpression,
+            AST_NODE_TYPES.FunctionDeclaration,
+            AST_NODE_TYPES.FunctionExpression,
+          ].includes(blockParent.type)
+        ) {
+          // e.g. `if (cond) { return; }`
+          // not in a top-level function block
+          return false;
+        }
 
-      if (
-        parent.type === AST_NODE_TYPES.ConditionalExpression &&
-        (parent.consequent === node || parent.alternate === node)
-      ) {
-        // e.g. `cond ? console.log(true) : console.log(false)`
-        // this is valid only if the next ancestor is valid
-        return findInvalidAncestor(parent);
-      }
+        // must be the last child of the block
+        if (block.body.indexOf(node) < block.body.length - 1) {
+          // not the last statement in the block
+          return false;
+        }
 
-      if (
-        parent.type === AST_NODE_TYPES.ArrowFunctionExpression &&
-        // e.g. `() => console.log("foo")`
-        // this is valid with an appropriate option
-        options.ignoreArrowShorthand
-      ) {
-        return null;
-      }
-
-      if (
-        parent.type === AST_NODE_TYPES.UnaryExpression &&
-        parent.operator === 'void' &&
-        // e.g. `void console.log("foo")`
-        // this is valid with an appropriate option
-        options.ignoreVoidOperator
-      ) {
-        return null;
-      }
-
-      if (parent.type === AST_NODE_TYPES.ChainExpression) {
-        // e.g. `console?.log('foo')`
-        return findInvalidAncestor(parent);
-      }
-
-      // Any other parent is invalid.
-      // We can assume a return statement will have an argument.
-      return parent as InvalidAncestor;
-    }
-
-    /** Checks whether the return statement is the last statement in a function body. */
-    function isFinalReturn(node: TSESTree.ReturnStatement): boolean {
-      // the parent must be a block
-      const block = node.parent;
-      if (block.type !== AST_NODE_TYPES.BlockStatement) {
-        // e.g. `if (cond) return;` (not in a block)
-        return false;
-      }
-
-      // the block's parent must be a function
-      const blockParent = block.parent;
-      if (
-        ![
-          AST_NODE_TYPES.ArrowFunctionExpression,
-          AST_NODE_TYPES.FunctionDeclaration,
-          AST_NODE_TYPES.FunctionExpression,
-        ].includes(blockParent.type)
-      ) {
-        // e.g. `if (cond) { return; }`
-        // not in a top-level function block
-        return false;
-      }
-
-      // must be the last child of the block
-      if (block.body.indexOf(node) < block.body.length - 1) {
-        // not the last statement in the block
-        return false;
-      }
-
-      return true;
-    }
-
-    /**
-     * Checks whether the given node, if placed on its own line,
-     * would prevent automatic semicolon insertion on the line before.
-     *
-     * This happens if the line begins with `(`, `[` or `` ` ``
-     */
-    function isPreventingASI(node: TSESTree.Expression): boolean {
-      const startToken = nullThrows(
-        context.sourceCode.getFirstToken(node),
-        NullThrowsReasons.MissingToken('first token', node.type),
-      );
-
-      return ['(', '[', '`'].includes(startToken.value);
-    }
-
-    function canFix(
-      node: ReturnStatementWithArgument | TSESTree.ArrowFunctionExpression,
-    ): boolean {
-      const targetNode =
-        node.type === AST_NODE_TYPES.ReturnStatement
-          ? node.argument
-          : node.body;
-
-      const type = getConstrainedTypeAtLocation(services, targetNode);
-      if (!tsutils.isTypeFlagSet(type, ts.TypeFlags.VoidLike)) {
-        return false;
-      }
-
-      const functionNode = nullThrows(
-        node.type === AST_NODE_TYPES.ArrowFunctionExpression
-          ? node
-          : getParentFunctionNode(node),
-        'Expected a return statement to be inside a function.',
-      );
-      return functionDeclarationAllowsEmptyReturn(functionNode);
-    }
-
-    function functionDeclarationAllowsEmptyReturn(
-      functionNode:
-        | TSESTree.ArrowFunctionExpression
-        | TSESTree.FunctionDeclaration
-        | TSESTree.FunctionExpression,
-    ): boolean {
-      if (!functionNode.returnType) {
         return true;
       }
 
-      const declaredReturnType = services.getTypeFromTypeNode(
-        functionNode.returnType.typeAnnotation,
-      );
-
-      const checker = services.program.getTypeChecker();
-      const resolvedReturnType = functionNode.async
-        ? (checker.getAwaitedType(declaredReturnType) ?? declaredReturnType)
-        : declaredReturnType;
-
-      return tsutils
-        .unionConstituents(resolvedReturnType)
-        .some(
-          part =>
-            tsutils.isTypeFlagSet(part, ts.TypeFlags.Any) ||
-            tsutils.isTypeFlagSet(part, ts.TypeFlags.VoidLike),
+      /**
+       * Checks whether the given node, if placed on its own line,
+       * would prevent automatic semicolon insertion on the line before.
+       *
+       * This happens if the line begins with `(`, `[` or `` ` ``
+       */
+      function isPreventingASI(node: TSESTree.Expression): boolean {
+        const startToken = nullThrows(
+          context.sourceCode.getFirstToken(node),
+          NullThrowsReasons.MissingToken('first token', node.type),
         );
-    }
 
-    function isFunctionReturnTypeIncludesVoid(functionType: ts.Type): boolean {
-      const callSignatures = tsutils.getCallSignaturesOfType(functionType);
+        return ['(', '[', '`'].includes(startToken.value);
+      }
 
-      return callSignatures.some(signature => {
-        const returnType = signature.getReturnType();
+      function canFix(
+        node: ReturnStatementWithArgument | TSESTree.ArrowFunctionExpression,
+      ): boolean {
+        const targetNode =
+          node.type === AST_NODE_TYPES.ReturnStatement
+            ? node.argument
+            : node.body;
 
-        return tsutils
-          .unionConstituents(returnType)
-          .some(tsutils.isIntrinsicVoidType);
-      });
-    }
+        const type = getConstrainedTypeAtLocation(services, targetNode);
+        if (!tsutils.isTypeFlagSet(type, ts.TypeFlags.VoidLike)) {
+          return false;
+        }
 
-    function isVoidReturningFunctionNode(
-      functionNode:
-        | TSESTree.ArrowFunctionExpression
-        | TSESTree.FunctionDeclaration
-        | TSESTree.FunctionExpression,
-    ): boolean {
-      // Game plan:
-      //   - If the function node has a type annotation, check if it includes `void`.
-      //     - If it does then the function is safe to return `void` expressions in.
-      //   - Otherwise, check if the function is a function-expression or an arrow-function.
-      //   -   If it is, get its contextual type and bail if we cannot.
-      //   - Return based on whether the contextual type includes `void` or not
-      if (functionNode.returnType) {
-        const returnType = services.getTypeFromTypeNode(
+        const functionNode = nullThrows(
+          node.type === AST_NODE_TYPES.ArrowFunctionExpression
+            ? node
+            : getParentFunctionNode(node),
+          'Expected a return statement to be inside a function.',
+        );
+        return functionDeclarationAllowsEmptyReturn(functionNode);
+      }
+
+      function functionDeclarationAllowsEmptyReturn(
+        functionNode:
+          | TSESTree.ArrowFunctionExpression
+          | TSESTree.FunctionDeclaration
+          | TSESTree.FunctionExpression,
+      ): boolean {
+        if (!functionNode.returnType) {
+          return true;
+        }
+
+        const declaredReturnType = services.getTypeFromTypeNode(
           functionNode.returnType.typeAnnotation,
         );
 
+        const checker = services.program.getTypeChecker();
+        const resolvedReturnType = functionNode.async
+          ? (checker.getAwaitedType(declaredReturnType) ?? declaredReturnType)
+          : declaredReturnType;
+
         return tsutils
-          .unionConstituents(returnType)
-          .some(tsutils.isIntrinsicVoidType);
+          .unionConstituents(resolvedReturnType)
+          .some(
+            part =>
+              tsutils.isTypeFlagSet(part, ts.TypeFlags.Any) ||
+              tsutils.isTypeFlagSet(part, ts.TypeFlags.VoidLike),
+          );
       }
 
-      if (functionNode.type !== AST_NODE_TYPES.FunctionDeclaration) {
-        const functionType = services.getContextualType(functionNode);
+      function isFunctionReturnTypeIncludesVoid(
+        functionType: ts.Type,
+      ): boolean {
+        const callSignatures = tsutils.getCallSignaturesOfType(functionType);
 
-        if (functionType) {
+        return callSignatures.some(signature => {
+          const returnType = signature.getReturnType();
+
           return tsutils
-            .unionConstituents(functionType)
-            .some(isFunctionReturnTypeIncludesVoid);
-        }
+            .unionConstituents(returnType)
+            .some(tsutils.isIntrinsicVoidType);
+        });
       }
 
-      return false;
-    }
+      function isVoidReturningFunctionNode(
+        functionNode:
+          | TSESTree.ArrowFunctionExpression
+          | TSESTree.FunctionDeclaration
+          | TSESTree.FunctionExpression,
+      ): boolean {
+        // Game plan:
+        //   - If the function node has a type annotation, check if it includes `void`.
+        //     - If it does then the function is safe to return `void` expressions in.
+        //   - Otherwise, check if the function is a function-expression or an arrow-function.
+        //   -   If it is, get its contextual type and bail if we cannot.
+        //   - Return based on whether the contextual type includes `void` or not
+        if (functionNode.returnType) {
+          const returnType = services.getTypeFromTypeNode(
+            functionNode.returnType.typeAnnotation,
+          );
+
+          return tsutils
+            .unionConstituents(returnType)
+            .some(tsutils.isIntrinsicVoidType);
+        }
+
+        if (functionNode.type !== AST_NODE_TYPES.FunctionDeclaration) {
+          const functionType = services.getContextualType(functionNode);
+
+          if (functionType) {
+            return tsutils
+              .unionConstituents(functionType)
+              .some(isFunctionReturnTypeIncludesVoid);
+          }
+        }
+
+        return false;
+      }
+    },
   },
 });

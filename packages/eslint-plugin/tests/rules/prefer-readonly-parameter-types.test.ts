@@ -1692,7 +1692,7 @@ foo<string[]>(arg => {});
 });
 
 // TypeScript 7 doesn't treat constructor functions as classes.
-describe.skipIf(process.env.TYPESCRIPT_ESLINT_EXPERIMENTAL_BACKEND === 'tsgo')(
+describe.skipIf(process.env.TYPESCRIPT_ESLINT_BACKEND === 'tsgo')(
   'constructor functions',
   () => {
     ruleTester.run('prefer-readonly-parameter-types', rule, {

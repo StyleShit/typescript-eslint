@@ -20,23 +20,27 @@ export default createRule({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create(context) {
-    return {
-      'UnaryExpression[operator=delete]'(node: TSESTree.UnaryExpression): void {
-        if (
-          node.argument.type !== AST_NODE_TYPES.MemberExpression ||
-          !node.argument.computed ||
-          isAcceptableIndexExpression(node.argument.property)
-        ) {
-          return;
-        }
+  create: {
+    default(context) {
+      return {
+        'UnaryExpression[operator=delete]'(
+          node: TSESTree.UnaryExpression,
+        ): void {
+          if (
+            node.argument.type !== AST_NODE_TYPES.MemberExpression ||
+            !node.argument.computed ||
+            isAcceptableIndexExpression(node.argument.property)
+          ) {
+            return;
+          }
 
-        context.report({
-          node: node.argument.property,
-          messageId: 'dynamicDelete',
-        });
-      },
-    };
+          context.report({
+            node: node.argument.property,
+            messageId: 'dynamicDelete',
+          });
+        },
+      };
+    },
   },
 });
 

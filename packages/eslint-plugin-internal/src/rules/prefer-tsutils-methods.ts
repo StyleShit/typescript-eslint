@@ -44,7 +44,8 @@ export default createRule({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create(context) {
+  create: {
+    default(context) {
     function isTsFlagAccess(node: TSESTree.Node) {
       if (
         node.type === AST_NODE_TYPES.MemberExpression &&
@@ -174,5 +175,6 @@ export default createRule({
         });
       },
     };
+    },
   },
 });

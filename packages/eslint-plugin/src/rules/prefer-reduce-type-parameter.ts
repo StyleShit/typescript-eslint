@@ -34,95 +34,97 @@ export default createRule({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create(context) {
-    const services = getParserServices(context);
-    const checker = services.program.getTypeChecker();
+  create: {
+    default(context) {
+      const services = getParserServices(context);
+      const checker = services.program.getTypeChecker();
 
-    function isArrayType(type: ts.Type): boolean {
-      return tsutils
-        .unionConstituents(type)
-        .every(unionPart =>
-          tsutils
-            .intersectionConstituents(unionPart)
-            .every(t => checker.isArrayType(t) || checker.isTupleType(t)),
-        );
-    }
-
-    return {
-      'CallExpression > MemberExpression.callee'(
-        callee: MemberExpressionWithCallExpressionParent,
-      ): void {
-        if (!isStaticMemberAccessOfValue(callee, context, 'reduce')) {
-          return;
-        }
-
-        const [, secondArg] = callee.parent.arguments;
-
-        if (callee.parent.arguments.length < 2) {
-          return;
-        }
-
-        if (isTypeAssertion(secondArg)) {
-          const initializerType = services.getTypeAtLocation(
-            secondArg.expression,
+      function isArrayType(type: ts.Type): boolean {
+        return tsutils
+          .unionConstituents(type)
+          .every(unionPart =>
+            tsutils
+              .intersectionConstituents(unionPart)
+              .every(t => checker.isArrayType(t) || checker.isTupleType(t)),
           );
+      }
 
-          const assertedType = services.getTypeAtLocation(
-            secondArg.typeAnnotation,
-          );
-
-          const isAssertionNecessary = !checker.isTypeAssignableTo(
-            initializerType,
-            assertedType,
-          );
-
-          // don't report this if the resulting fix will be a type error
-          if (isAssertionNecessary) {
+      return {
+        'CallExpression > MemberExpression.callee'(
+          callee: MemberExpressionWithCallExpressionParent,
+        ): void {
+          if (!isStaticMemberAccessOfValue(callee, context, 'reduce')) {
             return;
           }
-        } else {
-          return;
-        }
 
-        // Get the symbol of the `reduce` method.
-        const calleeObjType = getConstrainedTypeAtLocation(
-          services,
-          callee.object,
-        );
+          const [, secondArg] = callee.parent.arguments;
 
-        // Check the owner type of the `reduce` method.
-        if (isArrayType(calleeObjType)) {
-          context.report({
-            node: secondArg,
-            messageId: 'preferTypeParameter',
-            fix: fixer => {
-              const fixes = [
-                fixer.removeRange([
-                  secondArg.range[0],
-                  secondArg.expression.range[0],
-                ]),
-                fixer.removeRange([
-                  secondArg.expression.range[1],
-                  secondArg.range[1],
-                ]),
-              ];
+          if (callee.parent.arguments.length < 2) {
+            return;
+          }
 
-              if (!callee.parent.typeArguments) {
-                fixes.push(
-                  fixer.insertTextAfter(
-                    callee,
-                    `<${context.sourceCode.getText(secondArg.typeAnnotation)}>`,
-                  ),
-                );
-              }
+          if (isTypeAssertion(secondArg)) {
+            const initializerType = services.getTypeAtLocation(
+              secondArg.expression,
+            );
 
-              return fixes;
-            },
-          });
+            const assertedType = services.getTypeAtLocation(
+              secondArg.typeAnnotation,
+            );
 
-          return;
-        }
-      },
-    };
+            const isAssertionNecessary = !checker.isTypeAssignableTo(
+              initializerType,
+              assertedType,
+            );
+
+            // don't report this if the resulting fix will be a type error
+            if (isAssertionNecessary) {
+              return;
+            }
+          } else {
+            return;
+          }
+
+          // Get the symbol of the `reduce` method.
+          const calleeObjType = getConstrainedTypeAtLocation(
+            services,
+            callee.object,
+          );
+
+          // Check the owner type of the `reduce` method.
+          if (isArrayType(calleeObjType)) {
+            context.report({
+              node: secondArg,
+              messageId: 'preferTypeParameter',
+              fix: fixer => {
+                const fixes = [
+                  fixer.removeRange([
+                    secondArg.range[0],
+                    secondArg.expression.range[0],
+                  ]),
+                  fixer.removeRange([
+                    secondArg.expression.range[1],
+                    secondArg.range[1],
+                  ]),
+                ];
+
+                if (!callee.parent.typeArguments) {
+                  fixes.push(
+                    fixer.insertTextAfter(
+                      callee,
+                      `<${context.sourceCode.getText(secondArg.typeAnnotation)}>`,
+                    ),
+                  );
+                }
+
+                return fixes;
+              },
+            });
+
+            return;
+          }
+        },
+      };
+    },
   },
 });

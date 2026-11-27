@@ -30,83 +30,85 @@ export default createRule<[], MessageId>({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create(context) {
-    const services = getParserServices(context);
-    const checker = services.program.getTypeChecker();
+  create: {
+    default(context) {
+      const services = getParserServices(context);
+      const checker = services.program.getTypeChecker();
 
-    function isUnderlyingTypeArray(type: ts.Type): boolean {
-      const predicate = (t: ts.Type): boolean =>
-        checker.isArrayType(t) || checker.isTupleType(t);
+      function isUnderlyingTypeArray(type: ts.Type): boolean {
+        const predicate = (t: ts.Type): boolean =>
+          checker.isArrayType(t) || checker.isTupleType(t);
 
-      if (type.isUnion()) {
-        return type.types.every(predicate);
-      }
-
-      if (type.isIntersection()) {
-        return type.types.some(predicate);
-      }
-
-      return predicate(type);
-    }
-
-    return {
-      'UnaryExpression[operator="delete"]'(
-        node: TSESTree.UnaryExpression,
-      ): void {
-        const { argument } = node;
-
-        if (argument.type !== AST_NODE_TYPES.MemberExpression) {
-          return;
+        if (type.isUnion()) {
+          return type.types.every(predicate);
         }
 
-        const type = getConstrainedTypeAtLocation(services, argument.object);
-
-        if (!isUnderlyingTypeArray(type)) {
-          return;
+        if (type.isIntersection()) {
+          return type.types.some(predicate);
         }
 
-        context.report({
-          node,
-          messageId: 'noArrayDelete',
-          suggest: [
-            {
-              messageId: 'useSplice',
-              fix(fixer): TSESLint.RuleFix | null {
-                const { object, property } = argument;
+        return predicate(type);
+      }
 
-                const shouldHaveParentheses =
-                  property.type === AST_NODE_TYPES.SequenceExpression;
+      return {
+        'UnaryExpression[operator="delete"]'(
+          node: TSESTree.UnaryExpression,
+        ): void {
+          const { argument } = node;
 
-                const nodeMap = services.esTreeNodeToTSNodeMap;
-                const target = nodeMap.get(object).getText();
-                const rawKey = nodeMap.get(property).getText();
-                const key = shouldHaveParentheses ? `(${rawKey})` : rawKey;
+          if (argument.type !== AST_NODE_TYPES.MemberExpression) {
+            return;
+          }
 
-                let suggestion = `${target}.splice(${key}, 1)`;
+          const type = getConstrainedTypeAtLocation(services, argument.object);
 
-                const comments = context.sourceCode.getCommentsInside(node);
+          if (!isUnderlyingTypeArray(type)) {
+            return;
+          }
 
-                if (comments.length > 0) {
-                  const indentationCount = node.loc.start.column;
-                  const indentation = ' '.repeat(indentationCount);
+          context.report({
+            node,
+            messageId: 'noArrayDelete',
+            suggest: [
+              {
+                messageId: 'useSplice',
+                fix(fixer): TSESLint.RuleFix | null {
+                  const { object, property } = argument;
 
-                  const commentsText = comments
-                    .map(comment => {
-                      return comment.type === AST_TOKEN_TYPES.Line
-                        ? `//${comment.value}`
-                        : `/*${comment.value}*/`;
-                    })
-                    .join(`\n${indentation}`);
+                  const shouldHaveParentheses =
+                    property.type === AST_NODE_TYPES.SequenceExpression;
 
-                  suggestion = `${commentsText}\n${indentation}${suggestion}`;
-                }
+                  const nodeMap = services.esTreeNodeToTSNodeMap;
+                  const target = nodeMap.get(object).getText();
+                  const rawKey = nodeMap.get(property).getText();
+                  const key = shouldHaveParentheses ? `(${rawKey})` : rawKey;
 
-                return fixer.replaceText(node, suggestion);
+                  let suggestion = `${target}.splice(${key}, 1)`;
+
+                  const comments = context.sourceCode.getCommentsInside(node);
+
+                  if (comments.length > 0) {
+                    const indentationCount = node.loc.start.column;
+                    const indentation = ' '.repeat(indentationCount);
+
+                    const commentsText = comments
+                      .map(comment => {
+                        return comment.type === AST_TOKEN_TYPES.Line
+                          ? `//${comment.value}`
+                          : `/*${comment.value}*/`;
+                      })
+                      .join(`\n${indentation}`);
+
+                    suggestion = `${commentsText}\n${indentation}${suggestion}`;
+                  }
+
+                  return fixer.replaceText(node, suggestion);
+                },
               },
-            },
-          ],
-        });
-      },
-    };
+            ],
+          });
+        },
+      };
+    },
   },
 });

@@ -96,43 +96,56 @@ export default createRule<Options, MessageIds>({
     },
   ],
 
-  create(context, [options]) {
-    const services = getParserServices(context);
-    const checker = services.program.getTypeChecker();
+  create: {
+    default(context, [options]) {
+      const services = getParserServices(context);
+      const checker = services.program.getTypeChecker();
 
-    function checkArrayOrCallSpread(node: TSESTree.SpreadElement): void {
-      const type = getConstrainedTypeAtLocation(services, node.argument);
+      function checkArrayOrCallSpread(node: TSESTree.SpreadElement): void {
+        const type = getConstrainedTypeAtLocation(services, node.argument);
 
-      if (
-        !typeMatchesSomeSpecifier(type, options.allow, services.program) &&
-        isString(type)
-      ) {
-        context.report({
-          node,
-          messageId: 'noStringSpread',
-        });
-      }
-    }
-
-    function getMapSpreadSuggestions(
-      node: TSESTree.JSXSpreadAttribute | TSESTree.SpreadElement,
-      type: ts.Type,
-    ): TSESLint.ReportSuggestionArray<MessageIds> | null {
-      const types = tsutils.unionConstituents(type);
-      if (types.some(t => !isIterableMap(services.program, t))) {
-        return null;
+        if (
+          !typeMatchesSomeSpecifier(type, options.allow, services.program) &&
+          isString(type)
+        ) {
+          context.report({
+            node,
+            messageId: 'noStringSpread',
+          });
+        }
       }
 
-      if (
-        node.parent.type === AST_NODE_TYPES.ObjectExpression &&
-        node.parent.properties.length === 1
-      ) {
+      function getMapSpreadSuggestions(
+        node: TSESTree.JSXSpreadAttribute | TSESTree.SpreadElement,
+        type: ts.Type,
+      ): TSESLint.ReportSuggestionArray<MessageIds> | null {
+        const types = tsutils.unionConstituents(type);
+        if (types.some(t => !isIterableMap(services.program, t))) {
+          return null;
+        }
+
+        if (
+          node.parent.type === AST_NODE_TYPES.ObjectExpression &&
+          node.parent.properties.length === 1
+        ) {
+          return [
+            {
+              messageId: 'replaceMapSpreadInObject',
+              fix: getWrappingFixer({
+                node: node.parent,
+                innerNode: node.argument,
+                sourceCode: context.sourceCode,
+                wrap: code => `Object.fromEntries(${code})`,
+              }),
+            },
+          ];
+        }
+
         return [
           {
             messageId: 'replaceMapSpreadInObject',
             fix: getWrappingFixer({
-              node: node.parent,
-              innerNode: node.argument,
+              node: node.argument,
               sourceCode: context.sourceCode,
               wrap: code => `Object.fromEntries(${code})`,
             }),
@@ -140,122 +153,111 @@ export default createRule<Options, MessageIds>({
         ];
       }
 
-      return [
-        {
-          messageId: 'replaceMapSpreadInObject',
-          fix: getWrappingFixer({
-            node: node.argument,
-            sourceCode: context.sourceCode,
-            wrap: code => `Object.fromEntries(${code})`,
-          }),
-        },
-      ];
-    }
+      function getPromiseSpreadSuggestions(
+        node: TSESTree.Expression,
+      ): TSESLint.ReportSuggestionArray<MessageIds> {
+        const isHighPrecedence = isHigherPrecedenceThanAwait(
+          services.esTreeNodeToTSNodeMap.get(node),
+        );
 
-    function getPromiseSpreadSuggestions(
-      node: TSESTree.Expression,
-    ): TSESLint.ReportSuggestionArray<MessageIds> {
-      const isHighPrecedence = isHigherPrecedenceThanAwait(
-        services.esTreeNodeToTSNodeMap.get(node),
-      );
-
-      return [
-        {
-          messageId: 'addAwait',
-          fix: fixer =>
-            isHighPrecedence
-              ? fixer.insertTextBefore(node, 'await ')
-              : [
-                  fixer.insertTextBefore(node, 'await ('),
-                  fixer.insertTextAfter(node, ')'),
-                ],
-        },
-      ];
-    }
-
-    function checkObjectSpread(
-      node: TSESTree.JSXSpreadAttribute | TSESTree.SpreadElement,
-    ): void {
-      const type = getConstrainedTypeAtLocation(services, node.argument);
-
-      if (typeMatchesSomeSpecifier(type, options.allow, services.program)) {
-        return;
+        return [
+          {
+            messageId: 'addAwait',
+            fix: fixer =>
+              isHighPrecedence
+                ? fixer.insertTextBefore(node, 'await ')
+                : [
+                    fixer.insertTextBefore(node, 'await ('),
+                    fixer.insertTextAfter(node, ')'),
+                  ],
+          },
+        ];
       }
 
-      if (isPromise(services.program, type)) {
-        context.report({
-          node,
-          messageId: 'noPromiseSpreadInObject',
-          suggest: getPromiseSpreadSuggestions(node.argument),
-        });
+      function checkObjectSpread(
+        node: TSESTree.JSXSpreadAttribute | TSESTree.SpreadElement,
+      ): void {
+        const type = getConstrainedTypeAtLocation(services, node.argument);
 
-        return;
+        if (typeMatchesSomeSpecifier(type, options.allow, services.program)) {
+          return;
+        }
+
+        if (isPromise(services.program, type)) {
+          context.report({
+            node,
+            messageId: 'noPromiseSpreadInObject',
+            suggest: getPromiseSpreadSuggestions(node.argument),
+          });
+
+          return;
+        }
+
+        if (isFunctionWithoutProps(type)) {
+          context.report({
+            node,
+            messageId: 'noFunctionSpreadInObject',
+          });
+
+          return;
+        }
+
+        if (isMap(services.program, type)) {
+          context.report({
+            node,
+            messageId: 'noMapSpreadInObject',
+            suggest: getMapSpreadSuggestions(node, type),
+          });
+
+          return;
+        }
+
+        if (isArray(checker, type)) {
+          context.report({
+            node,
+            messageId: 'noArraySpreadInObject',
+          });
+
+          return;
+        }
+
+        if (
+          isIterable(type, checker) &&
+          // Don't report when the type is string, since TS will flag it already
+          !isString(type)
+        ) {
+          context.report({
+            node,
+            messageId: 'noIterableSpreadInObject',
+          });
+
+          return;
+        }
+
+        if (isClassInstance(checker, type)) {
+          context.report({
+            node,
+            messageId: 'noClassInstanceSpreadInObject',
+          });
+
+          return;
+        }
+
+        if (isClassDeclaration(type)) {
+          context.report({
+            node,
+            messageId: 'noClassDeclarationSpreadInObject',
+          });
+        }
       }
 
-      if (isFunctionWithoutProps(type)) {
-        context.report({
-          node,
-          messageId: 'noFunctionSpreadInObject',
-        });
-
-        return;
-      }
-
-      if (isMap(services.program, type)) {
-        context.report({
-          node,
-          messageId: 'noMapSpreadInObject',
-          suggest: getMapSpreadSuggestions(node, type),
-        });
-
-        return;
-      }
-
-      if (isArray(checker, type)) {
-        context.report({
-          node,
-          messageId: 'noArraySpreadInObject',
-        });
-
-        return;
-      }
-
-      if (
-        isIterable(type, checker) &&
-        // Don't report when the type is string, since TS will flag it already
-        !isString(type)
-      ) {
-        context.report({
-          node,
-          messageId: 'noIterableSpreadInObject',
-        });
-
-        return;
-      }
-
-      if (isClassInstance(checker, type)) {
-        context.report({
-          node,
-          messageId: 'noClassInstanceSpreadInObject',
-        });
-
-        return;
-      }
-
-      if (isClassDeclaration(type)) {
-        context.report({
-          node,
-          messageId: 'noClassDeclarationSpreadInObject',
-        });
-      }
-    }
-
-    return {
-      'ArrayExpression > SpreadElement': checkArrayOrCallSpread,
-      'CallExpression > SpreadElement': checkArrayOrCallSpread,
-      JSXSpreadAttribute: checkObjectSpread,
-      'ObjectExpression > SpreadElement': checkObjectSpread,
-    };
+      return {
+        'ArrayExpression > SpreadElement': checkArrayOrCallSpread,
+        'CallExpression > SpreadElement': checkArrayOrCallSpread,
+        JSXSpreadAttribute: checkObjectSpread,
+        'ObjectExpression > SpreadElement': checkObjectSpread,
+      };
+    },
   },
 });
 

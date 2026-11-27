@@ -11,7 +11,9 @@ export {
   type ParseAndGenerateServicesResult,
 } from './parser';
 export type {
+  NativeParserServices,
   ParserServices,
+  ParserServicesWithNativeTypeInformation,
   ParserServicesWithoutTypeInformation,
   ParserServicesWithTypeInformation,
   TSESTreeOptions,

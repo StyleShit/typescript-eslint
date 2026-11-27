@@ -48,104 +48,106 @@ export default createRule<[], MessageIds>({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create(context) {
-    const services = getParserServices(context);
-    const compilerOptions = services.program.getCompilerOptions();
-    const isNoImplicitThis = tsutils.isStrictCompilerOptionEnabled(
-      compilerOptions,
-      'noImplicitThis',
-    );
+  create: {
+    default(context) {
+      const services = getParserServices(context);
+      const compilerOptions = services.program.getCompilerOptions();
+      const isNoImplicitThis = tsutils.isStrictCompilerOptionEnabled(
+        compilerOptions,
+        'noImplicitThis',
+      );
 
-    function checkCall(
-      node: TSESTree.Node,
-      reportingNode: TSESTree.Node,
-      unsafeMessageId: Extract<MessageIds, `unsafe${string}`>,
-      errorMessageId: Extract<MessageIds, `error${string}`>,
-    ): void {
-      const type = getConstrainedTypeAtLocation(services, node);
+      function checkCall(
+        node: TSESTree.Node,
+        reportingNode: TSESTree.Node,
+        unsafeMessageId: Extract<MessageIds, `unsafe${string}`>,
+        errorMessageId: Extract<MessageIds, `error${string}`>,
+      ): void {
+        const type = getConstrainedTypeAtLocation(services, node);
 
-      if (isTypeAnyType(type)) {
-        if (!isNoImplicitThis) {
-          // `this()` or `this.foo()` or `this.foo[bar]()`
-          const thisExpression = getThisExpression(node);
-          if (
-            thisExpression &&
-            isTypeAnyType(
-              getConstrainedTypeAtLocation(services, thisExpression),
-            )
-          ) {
-            unsafeMessageId = 'unsafeCallThis';
-            errorMessageId = 'errorCallThis';
+        if (isTypeAnyType(type)) {
+          if (!isNoImplicitThis) {
+            // `this()` or `this.foo()` or `this.foo[bar]()`
+            const thisExpression = getThisExpression(node);
+            if (
+              thisExpression &&
+              isTypeAnyType(
+                getConstrainedTypeAtLocation(services, thisExpression),
+              )
+            ) {
+              unsafeMessageId = 'unsafeCallThis';
+              errorMessageId = 'errorCallThis';
+            }
           }
-        }
 
-        const isErrorType = tsutils.isIntrinsicErrorType(type);
+          const isErrorType = tsutils.isIntrinsicErrorType(type);
 
-        context.report({
-          node: reportingNode,
-          messageId: isErrorType ? errorMessageId : unsafeMessageId,
-          data: {
-            type: 'an `any`',
-          },
-        });
-        return;
-      }
-
-      if (isBuiltinSymbolLike(services.program, type, 'Function')) {
-        // this also matches subtypes of `Function`, like `interface Foo extends Function {}`.
-        //
-        // For weird TS reasons that I don't understand, these are
-        //
-        // safe to construct if:
-        // - they have at least one call signature _that is not void-returning_,
-        // - OR they have at least one construct signature.
-        //
-        // safe to call (including as template) if:
-        // - they have at least one call signature
-        // - OR they have at least one construct signature.
-
-        const constructSignatures = type.getConstructSignatures();
-        if (constructSignatures.length > 0) {
+          context.report({
+            node: reportingNode,
+            messageId: isErrorType ? errorMessageId : unsafeMessageId,
+            data: {
+              type: 'an `any`',
+            },
+          });
           return;
         }
 
-        const callSignatures = type.getCallSignatures();
-        if (unsafeMessageId === 'unsafeNew') {
-          if (
-            callSignatures.some(
-              signature =>
-                !tsutils.isIntrinsicVoidType(signature.getReturnType()),
-            )
-          ) {
+        if (isBuiltinSymbolLike(services.program, type, 'Function')) {
+          // this also matches subtypes of `Function`, like `interface Foo extends Function {}`.
+          //
+          // For weird TS reasons that I don't understand, these are
+          //
+          // safe to construct if:
+          // - they have at least one call signature _that is not void-returning_,
+          // - OR they have at least one construct signature.
+          //
+          // safe to call (including as template) if:
+          // - they have at least one call signature
+          // - OR they have at least one construct signature.
+
+          const constructSignatures = type.getConstructSignatures();
+          if (constructSignatures.length > 0) {
             return;
           }
-        } else if (callSignatures.length > 0) {
+
+          const callSignatures = type.getCallSignatures();
+          if (unsafeMessageId === 'unsafeNew') {
+            if (
+              callSignatures.some(
+                signature =>
+                  !tsutils.isIntrinsicVoidType(signature.getReturnType()),
+              )
+            ) {
+              return;
+            }
+          } else if (callSignatures.length > 0) {
+            return;
+          }
+
+          context.report({
+            node: reportingNode,
+            messageId: unsafeMessageId,
+            data: {
+              type: 'a `Function`',
+            },
+          });
           return;
         }
-
-        context.report({
-          node: reportingNode,
-          messageId: unsafeMessageId,
-          data: {
-            type: 'a `Function`',
-          },
-        });
-        return;
       }
-    }
 
-    return {
-      'CallExpression > *.callee'(
-        node: TSESTree.CallExpression['callee'],
-      ): void {
-        checkCall(node, node, 'unsafeCall', 'errorCall');
-      },
-      NewExpression(node): void {
-        checkCall(node.callee, node, 'unsafeNew', 'errorNew');
-      },
-      'TaggedTemplateExpression > *.tag'(node: TSESTree.Node): void {
-        checkCall(node, node, 'unsafeTemplateTag', 'errorTemplateTag');
-      },
-    };
+      return {
+        'CallExpression > *.callee'(
+          node: TSESTree.CallExpression['callee'],
+        ): void {
+          checkCall(node, node, 'unsafeCall', 'errorCall');
+        },
+        NewExpression(node): void {
+          checkCall(node.callee, node, 'unsafeNew', 'errorNew');
+        },
+        'TaggedTemplateExpression > *.tag'(node: TSESTree.Node): void {
+          checkCall(node, node, 'unsafeTemplateTag', 'errorTemplateTag');
+        },
+      };
+    },
   },
 });

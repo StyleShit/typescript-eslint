@@ -20,29 +20,31 @@ export default createRule({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create(context) {
-    return {
-      TSModuleDeclaration(node): void {
-        // Do nothing if the name is a string.
-        if (node.id.type === AST_NODE_TYPES.Literal) {
-          return;
-        }
-        // Get tokens of the declaration header.
-        const moduleType = context.sourceCode.getTokenBefore(node.id);
+  create: {
+    default(context) {
+      return {
+        TSModuleDeclaration(node): void {
+          // Do nothing if the name is a string.
+          if (node.id.type === AST_NODE_TYPES.Literal) {
+            return;
+          }
+          // Get tokens of the declaration header.
+          const moduleType = context.sourceCode.getTokenBefore(node.id);
 
-        if (
-          moduleType?.type === AST_TOKEN_TYPES.Identifier &&
-          moduleType.value === 'module'
-        ) {
-          context.report({
-            node,
-            messageId: 'useNamespace',
-            fix(fixer) {
-              return fixer.replaceText(moduleType, 'namespace');
-            },
-          });
-        }
-      },
-    };
+          if (
+            moduleType?.type === AST_TOKEN_TYPES.Identifier &&
+            moduleType.value === 'module'
+          ) {
+            context.report({
+              node,
+              messageId: 'useNamespace',
+              fix(fixer) {
+                return fixer.replaceText(moduleType, 'namespace');
+              },
+            });
+          }
+        },
+      };
+    },
   },
 });

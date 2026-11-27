@@ -7,7 +7,9 @@ import { createRule, getStringLength, nullThrows } from '../util';
 const defaultMinimumDescriptionLength = 3;
 
 export type DirectiveConfig =
-  boolean | 'allow-with-description' | { descriptionFormat: string };
+  | boolean
+  | 'allow-with-description'
+  | { descriptionFormat: string };
 
 export interface OptionsShape {
   minimumDescriptionLength?: number;
@@ -121,168 +123,173 @@ export default createRule<Options, MessageIds>({
       'ts-nocheck': true,
     },
   ],
-  create(context, [options]) {
-    // https://github.com/microsoft/TypeScript/blob/6f1ad5ad8bec5671f7e951a3524b62d82ec4be68/src/compiler/parser.ts#L10591
-    const singleLinePragmaRegEx =
-      /^\/\/\/?\s*@ts-(?<directive>check|nocheck)(?<description>.*)$/;
+  create: {
+    default(context, [options]) {
+      // https://github.com/microsoft/TypeScript/blob/6f1ad5ad8bec5671f7e951a3524b62d82ec4be68/src/compiler/parser.ts#L10591
+      const singleLinePragmaRegEx =
+        /^\/\/\/?\s*@ts-(?<directive>check|nocheck)(?<description>.*)$/;
 
-    /*
+      /*
       The regex used are taken from the ones used in the official TypeScript repo -
       https://github.com/microsoft/TypeScript/blob/6f1ad5ad8bec5671f7e951a3524b62d82ec4be68/src/compiler/scanner.ts#L340-L348
     */
-    const commentDirectiveRegExSingleLine =
-      /^\/*\s*@ts-(?<directive>expect-error|ignore)(?<description>.*)/;
-    const commentDirectiveRegExMultiLine =
-      /^\s*(?:\/|\*)*\s*@ts-(?<directive>expect-error|ignore)(?<description>.*)/;
+      const commentDirectiveRegExSingleLine =
+        /^\/*\s*@ts-(?<directive>expect-error|ignore)(?<description>.*)/;
+      const commentDirectiveRegExMultiLine =
+        /^\s*(?:\/|\*)*\s*@ts-(?<directive>expect-error|ignore)(?<description>.*)/;
 
-    const descriptionFormats = new Map<string, RegExp>();
-    for (const directive of [
-      'ts-expect-error',
-      'ts-ignore',
-      'ts-nocheck',
-      'ts-check',
-    ] as const) {
-      const option = options[directive];
-      if (typeof option === 'object' && option.descriptionFormat) {
-        descriptionFormats.set(directive, new RegExp(option.descriptionFormat));
-      }
-    }
-
-    function execDirectiveRegEx(
-      regex: RegExp,
-      str: string,
-    ): MatchedTSDirective | null {
-      const match = regex.exec(str);
-      if (!match) {
-        return null;
+      const descriptionFormats = new Map<string, RegExp>();
+      for (const directive of [
+        'ts-expect-error',
+        'ts-ignore',
+        'ts-nocheck',
+        'ts-check',
+      ] as const) {
+        const option = options[directive];
+        if (typeof option === 'object' && option.descriptionFormat) {
+          descriptionFormats.set(
+            directive,
+            new RegExp(option.descriptionFormat),
+          );
+        }
       }
 
-      const { description, directive } = nullThrows(
-        match.groups,
-        'RegExp should contain groups',
-      );
-      return {
-        description: nullThrows(
-          description,
-          'RegExp should contain "description" group',
-        ),
-        directive: nullThrows(
-          directive,
-          'RegExp should contain "directive" group',
-        ),
-      };
-    }
-
-    function findDirectiveInComment(
-      comment: TSESTree.Comment,
-    ): MatchedTSDirective | null {
-      if (comment.type === AST_TOKEN_TYPES.Line) {
-        const matchedPragma = execDirectiveRegEx(
-          singleLinePragmaRegEx,
-          `//${comment.value}`,
-        );
-        if (matchedPragma) {
-          return matchedPragma;
+      function execDirectiveRegEx(
+        regex: RegExp,
+        str: string,
+      ): MatchedTSDirective | null {
+        const match = regex.exec(str);
+        if (!match) {
+          return null;
         }
 
+        const { description, directive } = nullThrows(
+          match.groups,
+          'RegExp should contain groups',
+        );
+        return {
+          description: nullThrows(
+            description,
+            'RegExp should contain "description" group',
+          ),
+          directive: nullThrows(
+            directive,
+            'RegExp should contain "directive" group',
+          ),
+        };
+      }
+
+      function findDirectiveInComment(
+        comment: TSESTree.Comment,
+      ): MatchedTSDirective | null {
+        if (comment.type === AST_TOKEN_TYPES.Line) {
+          const matchedPragma = execDirectiveRegEx(
+            singleLinePragmaRegEx,
+            `//${comment.value}`,
+          );
+          if (matchedPragma) {
+            return matchedPragma;
+          }
+
+          return execDirectiveRegEx(
+            commentDirectiveRegExSingleLine,
+            comment.value,
+          );
+        }
+
+        const commentLines = comment.value.split(ASTUtils.LINEBREAK_MATCHER);
         return execDirectiveRegEx(
-          commentDirectiveRegExSingleLine,
-          comment.value,
+          commentDirectiveRegExMultiLine,
+          commentLines[commentLines.length - 1],
         );
       }
 
-      const commentLines = comment.value.split(ASTUtils.LINEBREAK_MATCHER);
-      return execDirectiveRegEx(
-        commentDirectiveRegExMultiLine,
-        commentLines[commentLines.length - 1],
-      );
-    }
+      return {
+        Program(node): void {
+          const firstStatement = node.body.at(0);
 
-    return {
-      Program(node): void {
-        const firstStatement = node.body.at(0);
+          const comments = context.sourceCode.getAllComments();
 
-        const comments = context.sourceCode.getAllComments();
-
-        comments.forEach(comment => {
-          const match = findDirectiveInComment(comment);
-          if (!match) {
-            return;
-          }
-          const { description, directive } = match;
-
-          if (
-            directive === 'nocheck' &&
-            firstStatement &&
-            firstStatement.loc.start.line <= comment.loc.start.line
-          ) {
-            return;
-          }
-
-          const fullDirective = `ts-${directive}` as keyof OptionsShape;
-
-          const option = options[fullDirective];
-          if (option === true) {
-            if (directive === 'ignore') {
-              // Special case to suggest @ts-expect-error instead of @ts-ignore
-              context.report({
-                node: comment,
-                messageId: 'tsIgnoreInsteadOfExpectError',
-                suggest: [
-                  {
-                    messageId: 'replaceTsIgnoreWithTsExpectError',
-                    fix(fixer): TSESLint.RuleFix {
-                      const commentText = comment.value.replace(
-                        /@ts-ignore/,
-                        '@ts-expect-error',
-                      );
-                      return fixer.replaceText(
-                        comment,
-                        comment.type === AST_TOKEN_TYPES.Line
-                          ? `//${commentText}`
-                          : `/*${commentText}*/`,
-                      );
-                    },
-                  },
-                ],
-              });
-            } else {
-              context.report({
-                node: comment,
-                messageId: 'tsDirectiveComment',
-                data: { directive },
-              });
+          comments.forEach(comment => {
+            const match = findDirectiveInComment(comment);
+            if (!match) {
+              return;
             }
-          }
+            const { description, directive } = match;
 
-          if (
-            option === 'allow-with-description' ||
-            (typeof option === 'object' && option.descriptionFormat)
-          ) {
-            const { minimumDescriptionLength } = options;
-            const format = descriptionFormats.get(fullDirective);
             if (
-              getStringLength(description.trim()) <
-              nullThrows(
-                minimumDescriptionLength,
-                'Expected minimumDescriptionLength to be set',
-              )
+              directive === 'nocheck' &&
+              firstStatement &&
+              firstStatement.loc.start.line <= comment.loc.start.line
             ) {
-              context.report({
-                node: comment,
-                messageId: 'tsDirectiveCommentRequiresDescription',
-                data: { directive, minimumDescriptionLength },
-              });
-            } else if (format && !format.test(description)) {
-              context.report({
-                node: comment,
-                messageId: 'tsDirectiveCommentDescriptionNotMatchPattern',
-                data: { directive, format: format.source },
-              });
+              return;
             }
-          }
-        });
-      },
-    };
+
+            const fullDirective = `ts-${directive}` as keyof OptionsShape;
+
+            const option = options[fullDirective];
+            if (option === true) {
+              if (directive === 'ignore') {
+                // Special case to suggest @ts-expect-error instead of @ts-ignore
+                context.report({
+                  node: comment,
+                  messageId: 'tsIgnoreInsteadOfExpectError',
+                  suggest: [
+                    {
+                      messageId: 'replaceTsIgnoreWithTsExpectError',
+                      fix(fixer): TSESLint.RuleFix {
+                        const commentText = comment.value.replace(
+                          /@ts-ignore/,
+                          '@ts-expect-error',
+                        );
+                        return fixer.replaceText(
+                          comment,
+                          comment.type === AST_TOKEN_TYPES.Line
+                            ? `//${commentText}`
+                            : `/*${commentText}*/`,
+                        );
+                      },
+                    },
+                  ],
+                });
+              } else {
+                context.report({
+                  node: comment,
+                  messageId: 'tsDirectiveComment',
+                  data: { directive },
+                });
+              }
+            }
+
+            if (
+              option === 'allow-with-description' ||
+              (typeof option === 'object' && option.descriptionFormat)
+            ) {
+              const { minimumDescriptionLength } = options;
+              const format = descriptionFormats.get(fullDirective);
+              if (
+                getStringLength(description.trim()) <
+                nullThrows(
+                  minimumDescriptionLength,
+                  'Expected minimumDescriptionLength to be set',
+                )
+              ) {
+                context.report({
+                  node: comment,
+                  messageId: 'tsDirectiveCommentRequiresDescription',
+                  data: { directive, minimumDescriptionLength },
+                });
+              } else if (format && !format.test(description)) {
+                context.report({
+                  node: comment,
+                  messageId: 'tsDirectiveCommentDescriptionNotMatchPattern',
+                  data: { directive, format: format.source },
+                });
+              }
+            }
+          });
+        },
+      };
+    },
   },
 });

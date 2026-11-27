@@ -18,7 +18,9 @@ import {
 } from '../util';
 
 export type MessageIds =
-  'incorrectGroupOrder' | 'incorrectOrder' | 'incorrectRequiredMembersOrder';
+  | 'incorrectGroupOrder'
+  | 'incorrectOrder'
+  | 'incorrectRequiredMembersOrder';
 
 type ReadonlyType = 'readonly-field' | 'readonly-signature';
 
@@ -903,322 +905,329 @@ export default createRule<Options, MessageIds>({
       },
     },
   ],
-  create(context, [options]) {
-    /**
-     * Checks if the member groups are correctly sorted.
-     *
-     * @param members Members to be validated.
-     * @param groupOrder Group order to be validated.
-     * @param supportsModifiers A flag indicating whether the type supports modifiers (scope or accessibility) or not.
-     *
-     * @return Array of member groups or null if one of the groups is not correctly sorted.
-     */
-    function checkGroupSort(
-      members: Member[],
-      groupOrder: MemberType[],
-      supportsModifiers: boolean,
-    ): Member[][] | null {
-      const previousRanks: number[] = [];
-      const memberGroups: Member[][] = [];
-      let isCorrectlySorted = true;
+  create: {
+    default(context, [options]) {
+      /**
+       * Checks if the member groups are correctly sorted.
+       *
+       * @param members Members to be validated.
+       * @param groupOrder Group order to be validated.
+       * @param supportsModifiers A flag indicating whether the type supports modifiers (scope or accessibility) or not.
+       *
+       * @return Array of member groups or null if one of the groups is not correctly sorted.
+       */
+      function checkGroupSort(
+        members: Member[],
+        groupOrder: MemberType[],
+        supportsModifiers: boolean,
+      ): Member[][] | null {
+        const previousRanks: number[] = [];
+        const memberGroups: Member[][] = [];
+        let isCorrectlySorted = true;
 
-      // Find first member which isn't correctly sorted
-      for (const member of members) {
-        const rank = getRank(member, groupOrder, supportsModifiers);
-        const name = getMemberName(member, context.sourceCode);
-        const rankLastMember = previousRanks[previousRanks.length - 1];
+        // Find first member which isn't correctly sorted
+        for (const member of members) {
+          const rank = getRank(member, groupOrder, supportsModifiers);
+          const name = getMemberName(member, context.sourceCode);
+          const rankLastMember = previousRanks[previousRanks.length - 1];
 
-        if (rank === -1) {
-          continue;
-        }
+          if (rank === -1) {
+            continue;
+          }
 
-        // Works for 1st item because x < undefined === false for any x (typeof string)
-        if (rank < rankLastMember) {
-          context.report({
-            node: member,
-            messageId: 'incorrectGroupOrder',
-            data: {
-              name,
-              rank: getLowestRank(previousRanks, rank, groupOrder),
-            },
-          });
-
-          isCorrectlySorted = false;
-        } else if (rank === rankLastMember) {
-          // Same member group --> Push to existing member group array
-          memberGroups[memberGroups.length - 1].push(member);
-        } else {
-          // New member group --> Create new member group array
-          previousRanks.push(rank);
-          memberGroups.push([member]);
-        }
-      }
-
-      return isCorrectlySorted ? memberGroups : null;
-    }
-
-    /**
-     * Checks if the members are alphabetically sorted.
-     *
-     * @param members Members to be validated.
-     * @param order What order the members should be sorted in.
-     *
-     * @return True if all members are correctly sorted.
-     */
-    function checkAlphaSort(
-      members: Member[],
-      order: AlphabeticalOrder,
-    ): boolean {
-      let previousName = '';
-      let previousIndex = 0;
-      let isCorrectlySorted = true;
-
-      // Find first member which isn't correctly sorted
-      members.forEach((member, index) => {
-        const name = getMemberName(member, context.sourceCode);
-
-        // Note: Not all members have names
-        if (name) {
-          if (naturalOutOfOrder(name, previousName, order)) {
-            if (
-              isBlockedByEarlierMemberReferences(
-                member,
-                members,
-                previousIndex,
-                index,
-                context.sourceCode,
-              )
-            ) {
-              return;
-            }
-
+          // Works for 1st item because x < undefined === false for any x (typeof string)
+          if (rank < rankLastMember) {
             context.report({
               node: member,
-              messageId: 'incorrectOrder',
+              messageId: 'incorrectGroupOrder',
               data: {
-                beforeMember: previousName,
-                member: name,
+                name,
+                rank: getLowestRank(previousRanks, rank, groupOrder),
               },
             });
 
             isCorrectlySorted = false;
+          } else if (rank === rankLastMember) {
+            // Same member group --> Push to existing member group array
+            memberGroups[memberGroups.length - 1].push(member);
+          } else {
+            // New member group --> Create new member group array
+            previousRanks.push(rank);
+            memberGroups.push([member]);
           }
-
-          previousName = name;
-          previousIndex = index;
         }
-      });
 
-      return isCorrectlySorted;
-    }
-
-    function naturalOutOfOrder(
-      name: string,
-      previousName: string,
-      order: AlphabeticalOrder,
-    ): boolean {
-      if (name === previousName) {
-        return false;
+        return isCorrectlySorted ? memberGroups : null;
       }
-
-      switch (order) {
-        case 'alphabetically':
-          return name < previousName;
-        case 'alphabetically-case-insensitive':
-          return name.toLowerCase() < previousName.toLowerCase();
-        case 'natural':
-          return naturalCompare(name, previousName) !== 1;
-        case 'natural-case-insensitive':
-          return (
-            naturalCompare(name.toLowerCase(), previousName.toLowerCase()) !== 1
-          );
-      }
-    }
-
-    /**
-     * Checks if the order of optional and required members is correct based
-     * on the given 'required' parameter.
-     *
-     * @param members Members to be validated.
-     * @param optionalityOrder Where to place optional members, if not intermixed.
-     *
-     * @return True if all required and optional members are correctly sorted.
-     */
-    function checkRequiredOrder(
-      members: Member[],
-      optionalityOrder: OptionalityOrder | undefined,
-    ): boolean {
-      const switchIndex = members.findIndex(
-        (member, i) =>
-          i && isMemberOptional(member) !== isMemberOptional(members[i - 1]),
-      );
-
-      const report = (member: Member): void =>
-        context.report({
-          loc: member.loc,
-          messageId: 'incorrectRequiredMembersOrder',
-          data: {
-            member: getMemberName(member, context.sourceCode),
-            optionalOrRequired:
-              optionalityOrder === 'required-first' ? 'required' : 'optional',
-          },
-        });
-
-      // if the optionality of the first item is correct (based on optionalityOrder)
-      // then the first 0 inclusive to switchIndex exclusive members all
-      // have the correct optionality
-      if (
-        isMemberOptional(members[0]) !==
-        (optionalityOrder === 'optional-first')
-      ) {
-        report(members[0]);
-        return false;
-      }
-
-      for (let i = switchIndex + 1; i < members.length; i++) {
-        if (
-          isMemberOptional(members[i]) !==
-          isMemberOptional(members[switchIndex])
-        ) {
-          report(members[switchIndex]);
-          return false;
-        }
-      }
-
-      return true;
-    }
-
-    /**
-     * Validates if all members are correctly sorted.
-     *
-     * @param members Members to be validated.
-     * @param orderConfig Order config to be validated.
-     * @param supportsModifiers A flag indicating whether the type supports modifiers (scope or accessibility) or not.
-     */
-    function validateMembersOrder(
-      members: Member[],
-      orderConfig: OrderConfig,
-      supportsModifiers: boolean,
-    ): void {
-      if (orderConfig === 'never') {
-        return;
-      }
-
-      // Standardize config
-      let order: Order | undefined;
-      let memberTypes: string | MemberType[] | undefined;
-      let optionalityOrder: OptionalityOrder | undefined;
 
       /**
-       * It runs an alphabetic sort on the groups of the members of the class in the source code.
-       * @param memberSet The members in the class of the source code on which the grouping operation will be performed.
+       * Checks if the members are alphabetically sorted.
+       *
+       * @param members Members to be validated.
+       * @param order What order the members should be sorted in.
+       *
+       * @return True if all members are correctly sorted.
        */
-      const checkAlphaSortForAllMembers = (memberSet: Member[]): undefined => {
-        const hasAlphaSort = !!(order && order !== 'as-written');
-        if (hasAlphaSort && Array.isArray(memberTypes)) {
-          groupMembersByType(memberSet, memberTypes, supportsModifiers).forEach(
-            members => {
-              checkAlphaSort(members, order as AlphabeticalOrder);
-            },
-          );
+      function checkAlphaSort(
+        members: Member[],
+        order: AlphabeticalOrder,
+      ): boolean {
+        let previousName = '';
+        let previousIndex = 0;
+        let isCorrectlySorted = true;
+
+        // Find first member which isn't correctly sorted
+        members.forEach((member, index) => {
+          const name = getMemberName(member, context.sourceCode);
+
+          // Note: Not all members have names
+          if (name) {
+            if (naturalOutOfOrder(name, previousName, order)) {
+              if (
+                isBlockedByEarlierMemberReferences(
+                  member,
+                  members,
+                  previousIndex,
+                  index,
+                  context.sourceCode,
+                )
+              ) {
+                return;
+              }
+
+              context.report({
+                node: member,
+                messageId: 'incorrectOrder',
+                data: {
+                  beforeMember: previousName,
+                  member: name,
+                },
+              });
+
+              isCorrectlySorted = false;
+            }
+
+            previousName = name;
+            previousIndex = index;
+          }
+        });
+
+        return isCorrectlySorted;
+      }
+
+      function naturalOutOfOrder(
+        name: string,
+        previousName: string,
+        order: AlphabeticalOrder,
+      ): boolean {
+        if (name === previousName) {
+          return false;
         }
-      };
 
-      // returns true if everything is good and false if an error was reported
-      const checkOrder = (memberSet: Member[]): boolean => {
-        const hasAlphaSort = !!(order && order !== 'as-written');
+        switch (order) {
+          case 'alphabetically':
+            return name < previousName;
+          case 'alphabetically-case-insensitive':
+            return name.toLowerCase() < previousName.toLowerCase();
+          case 'natural':
+            return naturalCompare(name, previousName) !== 1;
+          case 'natural-case-insensitive':
+            return (
+              naturalCompare(name.toLowerCase(), previousName.toLowerCase()) !==
+              1
+            );
+        }
+      }
 
-        // Check order
-        if (Array.isArray(memberTypes)) {
-          const grouped = checkGroupSort(
-            memberSet,
-            memberTypes,
-            supportsModifiers,
-          );
+      /**
+       * Checks if the order of optional and required members is correct based
+       * on the given 'required' parameter.
+       *
+       * @param members Members to be validated.
+       * @param optionalityOrder Where to place optional members, if not intermixed.
+       *
+       * @return True if all required and optional members are correctly sorted.
+       */
+      function checkRequiredOrder(
+        members: Member[],
+        optionalityOrder: OptionalityOrder | undefined,
+      ): boolean {
+        const switchIndex = members.findIndex(
+          (member, i) =>
+            i && isMemberOptional(member) !== isMemberOptional(members[i - 1]),
+        );
 
-          if (grouped == null) {
-            checkAlphaSortForAllMembers(members);
+        const report = (member: Member): void =>
+          context.report({
+            loc: member.loc,
+            messageId: 'incorrectRequiredMembersOrder',
+            data: {
+              member: getMemberName(member, context.sourceCode),
+              optionalOrRequired:
+                optionalityOrder === 'required-first' ? 'required' : 'optional',
+            },
+          });
+
+        // if the optionality of the first item is correct (based on optionalityOrder)
+        // then the first 0 inclusive to switchIndex exclusive members all
+        // have the correct optionality
+        if (
+          isMemberOptional(members[0]) !==
+          (optionalityOrder === 'optional-first')
+        ) {
+          report(members[0]);
+          return false;
+        }
+
+        for (let i = switchIndex + 1; i < members.length; i++) {
+          if (
+            isMemberOptional(members[i]) !==
+            isMemberOptional(members[switchIndex])
+          ) {
+            report(members[switchIndex]);
             return false;
           }
-
-          if (hasAlphaSort) {
-            grouped.map(groupMember =>
-              checkAlphaSort(groupMember, order as AlphabeticalOrder),
-            );
-          }
-        } else if (hasAlphaSort) {
-          return checkAlphaSort(memberSet, order as AlphabeticalOrder);
         }
 
-        return false;
-      };
-
-      if (Array.isArray(orderConfig)) {
-        memberTypes = orderConfig;
-      } else {
-        order = orderConfig.order;
-        memberTypes = orderConfig.memberTypes;
-        optionalityOrder = orderConfig.optionalityOrder;
+        return true;
       }
 
-      if (!optionalityOrder) {
-        checkOrder(members);
-        return;
-      }
-
-      const switchIndex = members.findIndex(
-        (member, i) =>
-          i && isMemberOptional(member) !== isMemberOptional(members[i - 1]),
-      );
-
-      if (switchIndex !== -1) {
-        if (!checkRequiredOrder(members, optionalityOrder)) {
+      /**
+       * Validates if all members are correctly sorted.
+       *
+       * @param members Members to be validated.
+       * @param orderConfig Order config to be validated.
+       * @param supportsModifiers A flag indicating whether the type supports modifiers (scope or accessibility) or not.
+       */
+      function validateMembersOrder(
+        members: Member[],
+        orderConfig: OrderConfig,
+        supportsModifiers: boolean,
+      ): void {
+        if (orderConfig === 'never') {
           return;
         }
-        checkOrder(members.slice(0, switchIndex));
-        checkOrder(members.slice(switchIndex));
-      } else {
-        checkOrder(members);
-      }
-    }
 
-    // https://github.com/typescript-eslint/typescript-eslint/issues/5439
-    /* eslint-disable @typescript-eslint/no-non-null-assertion */
-    return {
-      ClassDeclaration(node): void {
-        validateMembersOrder(
-          node.body.body,
-          options.classes ?? options.default!,
-          true,
-        );
-      },
-      'ClassDeclaration, FunctionDeclaration'(node): void {
-        if ('superClass' in node) {
-          // ...
+        // Standardize config
+        let order: Order | undefined;
+        let memberTypes: string | MemberType[] | undefined;
+        let optionalityOrder: OptionalityOrder | undefined;
+
+        /**
+         * It runs an alphabetic sort on the groups of the members of the class in the source code.
+         * @param memberSet The members in the class of the source code on which the grouping operation will be performed.
+         */
+        const checkAlphaSortForAllMembers = (
+          memberSet: Member[],
+        ): undefined => {
+          const hasAlphaSort = !!(order && order !== 'as-written');
+          if (hasAlphaSort && Array.isArray(memberTypes)) {
+            groupMembersByType(
+              memberSet,
+              memberTypes,
+              supportsModifiers,
+            ).forEach(members => {
+              checkAlphaSort(members, order as AlphabeticalOrder);
+            });
+          }
+        };
+
+        // returns true if everything is good and false if an error was reported
+        const checkOrder = (memberSet: Member[]): boolean => {
+          const hasAlphaSort = !!(order && order !== 'as-written');
+
+          // Check order
+          if (Array.isArray(memberTypes)) {
+            const grouped = checkGroupSort(
+              memberSet,
+              memberTypes,
+              supportsModifiers,
+            );
+
+            if (grouped == null) {
+              checkAlphaSortForAllMembers(members);
+              return false;
+            }
+
+            if (hasAlphaSort) {
+              grouped.map(groupMember =>
+                checkAlphaSort(groupMember, order as AlphabeticalOrder),
+              );
+            }
+          } else if (hasAlphaSort) {
+            return checkAlphaSort(memberSet, order as AlphabeticalOrder);
+          }
+
+          return false;
+        };
+
+        if (Array.isArray(orderConfig)) {
+          memberTypes = orderConfig;
+        } else {
+          order = orderConfig.order;
+          memberTypes = orderConfig.memberTypes;
+          optionalityOrder = orderConfig.optionalityOrder;
         }
-      },
-      ClassExpression(node): void {
-        validateMembersOrder(
-          node.body.body,
-          options.classExpressions ?? options.default!,
-          true,
+
+        if (!optionalityOrder) {
+          checkOrder(members);
+          return;
+        }
+
+        const switchIndex = members.findIndex(
+          (member, i) =>
+            i && isMemberOptional(member) !== isMemberOptional(members[i - 1]),
         );
-      },
-      TSInterfaceDeclaration(node): void {
-        validateMembersOrder(
-          node.body.body,
-          options.interfaces ?? options.default!,
-          false,
-        );
-      },
-      TSTypeLiteral(node): void {
-        validateMembersOrder(
-          node.members,
-          options.typeLiterals ?? options.default!,
-          false,
-        );
-      },
-    };
-    /* eslint-enable @typescript-eslint/no-non-null-assertion */
+
+        if (switchIndex !== -1) {
+          if (!checkRequiredOrder(members, optionalityOrder)) {
+            return;
+          }
+          checkOrder(members.slice(0, switchIndex));
+          checkOrder(members.slice(switchIndex));
+        } else {
+          checkOrder(members);
+        }
+      }
+
+      // https://github.com/typescript-eslint/typescript-eslint/issues/5439
+      /* eslint-disable @typescript-eslint/no-non-null-assertion */
+      return {
+        ClassDeclaration(node): void {
+          validateMembersOrder(
+            node.body.body,
+            options.classes ?? options.default!,
+            true,
+          );
+        },
+        'ClassDeclaration, FunctionDeclaration'(node): void {
+          if ('superClass' in node) {
+            // ...
+          }
+        },
+        ClassExpression(node): void {
+          validateMembersOrder(
+            node.body.body,
+            options.classExpressions ?? options.default!,
+            true,
+          );
+        },
+        TSInterfaceDeclaration(node): void {
+          validateMembersOrder(
+            node.body.body,
+            options.interfaces ?? options.default!,
+            false,
+          );
+        },
+        TSTypeLiteral(node): void {
+          validateMembersOrder(
+            node.members,
+            options.typeLiterals ?? options.default!,
+            false,
+          );
+        },
+      };
+      /* eslint-enable @typescript-eslint/no-non-null-assertion */
+    },
   },
 });

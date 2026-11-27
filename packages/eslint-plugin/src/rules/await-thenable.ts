@@ -77,215 +77,166 @@ export default createRule<Options, MessageId>({
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [{ allowMixedPromiseArrays: false }],
 
-  create(context, [{ allowMixedPromiseArrays = false }]) {
-    const services = getParserServices(context);
-    const checker = services.program.getTypeChecker();
+  create: {
+    default(context, [{ allowMixedPromiseArrays = false }]) {
+      const services = getParserServices(context);
+      const checker = services.program.getTypeChecker();
 
-    return {
-      AwaitExpression(node): void {
-        const awaitArgumentEsNode = node.argument;
-        const awaitArgumentType =
-          services.getTypeAtLocation(awaitArgumentEsNode);
-        const awaitArgumentTsNode =
-          services.esTreeNodeToTSNodeMap.get(awaitArgumentEsNode);
+      return {
+        AwaitExpression(node): void {
+          const awaitArgumentEsNode = node.argument;
+          const awaitArgumentType =
+            services.getTypeAtLocation(awaitArgumentEsNode);
+          const awaitArgumentTsNode =
+            services.esTreeNodeToTSNodeMap.get(awaitArgumentEsNode);
 
-        const certainty = needsToBeAwaited(
-          checker,
-          awaitArgumentTsNode,
-          awaitArgumentType,
-        );
-
-        if (certainty === Awaitable.Never) {
-          context.report({
-            node,
-            messageId: 'await',
-            suggest: [
-              {
-                messageId: 'removeAwait',
-                fix(fixer) {
-                  const awaitKeyword = nullThrows(
-                    context.sourceCode.getFirstToken(node, isAwaitKeyword),
-                    NullThrowsReasons.MissingToken('await', 'await expression'),
-                  );
-
-                  const awaitTokenRemovalRange = getAwaitTokenRemovalRange(
-                    context.sourceCode,
-                    awaitKeyword,
-                  );
-                  const awaitRemovalFix = fixer.removeRange(
-                    awaitTokenRemovalRange,
-                  );
-
-                  const firstOperandToken = nullThrows(
-                    context.sourceCode.getTokenAfter(awaitKeyword),
-                    NullThrowsReasons.MissingToken(
-                      'operand',
-                      'await expression',
-                    ),
-                  );
-                  if (
-                    isStartOfArrowFunctionBodyNeedingParentheses(
-                      node,
-                      firstOperandToken,
-                      context.sourceCode,
-                    ) ||
-                    isStartOfExpressionStatementNeedingParentheses(
-                      node,
-                      firstOperandToken,
-                    )
-                  ) {
-                    return [
-                      awaitRemovalFix,
-                      fixer.insertTextBefore(awaitArgumentEsNode, '('),
-                      fixer.insertTextAfter(awaitArgumentEsNode, ')'),
-                    ];
-                  }
-
-                  return awaitRemovalFix;
-                },
-              },
-            ],
-          });
-        }
-      },
-
-      CallExpression(node: TSESTree.CallExpression): void {
-        if (!isPromiseAggregatorMethod(context, services, node)) {
-          return;
-        }
-
-        const argument = node.arguments.at(0);
-
-        if (argument == null) {
-          return;
-        }
-
-        if (
-          allowMixedPromiseArrays &&
-          hasMaybeAwaitableValue(services, argument)
-        ) {
-          return;
-        }
-
-        if (argument.type === TSESTree.AST_NODE_TYPES.ArrayExpression) {
-          for (const element of argument.elements) {
-            if (element == null) {
-              continue;
-            }
-
-            const type = getConstrainedTypeAtLocation(services, element);
-            const tsNode = services.esTreeNodeToTSNodeMap.get(element);
-
-            if (isAlwaysNonAwaitableType(type, tsNode, checker)) {
-              context.report({
-                node: element,
-                messageId: 'invalidPromiseAggregatorInput',
-              });
-            }
-          }
-
-          return;
-        }
-
-        const type = getConstrainedTypeAtLocation(services, argument);
-
-        if (
-          isInvalidPromiseAggregatorInput(
+          const certainty = needsToBeAwaited(
             checker,
-            services.esTreeNodeToTSNodeMap.get(argument),
-            type,
-          )
-        ) {
-          context.report({
-            node: argument,
-            messageId: 'invalidPromiseAggregatorInput',
-          });
-        }
-      },
-
-      'ForOfStatement[await=true]'(node: TSESTree.ForOfStatement): void {
-        const type = services.getTypeAtLocation(node.right);
-        if (isTypeAnyType(type)) {
-          return;
-        }
-
-        const hasAsyncIteratorSymbol = tsutils
-          .unionConstituents(type)
-          .some(
-            typePart =>
-              tsutils.getWellKnownSymbolPropertyOfType(
-                typePart,
-                'asyncIterator',
-                checker,
-              ) != null,
+            awaitArgumentTsNode,
+            awaitArgumentType,
           );
 
-        if (!hasAsyncIteratorSymbol) {
-          context.report({
-            loc: getForStatementHeadLoc(context.sourceCode, node),
-            messageId: 'forAwaitOfNonAsyncIterable',
-            suggest: [
-              // Note that this suggestion causes broken code for sync iterables
-              // of promises, since the loop variable is not awaited.
-              {
-                messageId: 'convertToOrdinaryFor',
-                fix(fixer): TSESLint.RuleFix {
-                  const awaitToken = nullThrows(
-                    context.sourceCode.getFirstToken(node, isAwaitKeyword),
-                    NullThrowsReasons.MissingToken('await', 'for await loop'),
-                  );
+          if (certainty === Awaitable.Never) {
+            context.report({
+              node,
+              messageId: 'await',
+              suggest: [
+                {
+                  messageId: 'removeAwait',
+                  fix(fixer) {
+                    const awaitKeyword = nullThrows(
+                      context.sourceCode.getFirstToken(node, isAwaitKeyword),
+                      NullThrowsReasons.MissingToken(
+                        'await',
+                        'await expression',
+                      ),
+                    );
 
-                  return fixer.removeRange(
-                    getAwaitTokenRemovalRange(context.sourceCode, awaitToken),
-                  );
+                    const awaitTokenRemovalRange = getAwaitTokenRemovalRange(
+                      context.sourceCode,
+                      awaitKeyword,
+                    );
+                    const awaitRemovalFix = fixer.removeRange(
+                      awaitTokenRemovalRange,
+                    );
+
+                    const firstOperandToken = nullThrows(
+                      context.sourceCode.getTokenAfter(awaitKeyword),
+                      NullThrowsReasons.MissingToken(
+                        'operand',
+                        'await expression',
+                      ),
+                    );
+                    if (
+                      isStartOfArrowFunctionBodyNeedingParentheses(
+                        node,
+                        firstOperandToken,
+                        context.sourceCode,
+                      ) ||
+                      isStartOfExpressionStatementNeedingParentheses(
+                        node,
+                        firstOperandToken,
+                      )
+                    ) {
+                      return [
+                        awaitRemovalFix,
+                        fixer.insertTextBefore(awaitArgumentEsNode, '('),
+                        fixer.insertTextAfter(awaitArgumentEsNode, ')'),
+                      ];
+                    }
+
+                    return awaitRemovalFix;
+                  },
                 },
-              },
-            ],
-          });
-        }
-      },
-
-      'VariableDeclaration[kind="await using"]'(
-        node: TSESTree.VariableDeclaration,
-      ): void {
-        for (const declarator of node.declarations) {
-          const init = declarator.init;
-          if (init == null) {
-            continue;
+              ],
+            });
           }
-          const type = services.getTypeAtLocation(init);
+        },
+
+        CallExpression(node: TSESTree.CallExpression): void {
+          if (!isPromiseAggregatorMethod(context, services, node)) {
+            return;
+          }
+
+          const argument = node.arguments.at(0);
+
+          if (argument == null) {
+            return;
+          }
+
+          if (
+            allowMixedPromiseArrays &&
+            hasMaybeAwaitableValue(services, argument)
+          ) {
+            return;
+          }
+
+          if (argument.type === TSESTree.AST_NODE_TYPES.ArrayExpression) {
+            for (const element of argument.elements) {
+              if (element == null) {
+                continue;
+              }
+
+              const type = getConstrainedTypeAtLocation(services, element);
+              const tsNode = services.esTreeNodeToTSNodeMap.get(element);
+
+              if (isAlwaysNonAwaitableType(type, tsNode, checker)) {
+                context.report({
+                  node: element,
+                  messageId: 'invalidPromiseAggregatorInput',
+                });
+              }
+            }
+
+            return;
+          }
+
+          const type = getConstrainedTypeAtLocation(services, argument);
+
+          if (
+            isInvalidPromiseAggregatorInput(
+              checker,
+              services.esTreeNodeToTSNodeMap.get(argument),
+              type,
+            )
+          ) {
+            context.report({
+              node: argument,
+              messageId: 'invalidPromiseAggregatorInput',
+            });
+          }
+        },
+
+        'ForOfStatement[await=true]'(node: TSESTree.ForOfStatement): void {
+          const type = services.getTypeAtLocation(node.right);
           if (isTypeAnyType(type)) {
-            continue;
+            return;
           }
 
-          const hasAsyncDisposeSymbol = tsutils
+          const hasAsyncIteratorSymbol = tsutils
             .unionConstituents(type)
             .some(
               typePart =>
                 tsutils.getWellKnownSymbolPropertyOfType(
                   typePart,
-                  'asyncDispose',
+                  'asyncIterator',
                   checker,
                 ) != null,
             );
 
-          if (!hasAsyncDisposeSymbol) {
+          if (!hasAsyncIteratorSymbol) {
             context.report({
-              node: init,
-              messageId: 'awaitUsingOfNonAsyncDisposable',
-              // let the user figure out what to do if there's
-              // await using a = b, c = d, e = f;
-              // it's rare and not worth the complexity to handle.
-              ...getFixOrSuggest({
-                fixOrSuggest:
-                  node.declarations.length === 1 ? 'suggest' : 'none',
-
-                suggestion: {
-                  messageId: 'removeAwait',
+              loc: getForStatementHeadLoc(context.sourceCode, node),
+              messageId: 'forAwaitOfNonAsyncIterable',
+              suggest: [
+                // Note that this suggestion causes broken code for sync iterables
+                // of promises, since the loop variable is not awaited.
+                {
+                  messageId: 'convertToOrdinaryFor',
                   fix(fixer): TSESLint.RuleFix {
                     const awaitToken = nullThrows(
                       context.sourceCode.getFirstToken(node, isAwaitKeyword),
-                      NullThrowsReasons.MissingToken('await', 'await using'),
+                      NullThrowsReasons.MissingToken('await', 'for await loop'),
                     );
 
                     return fixer.removeRange(
@@ -293,12 +244,69 @@ export default createRule<Options, MessageId>({
                     );
                   },
                 },
-              }),
+              ],
             });
           }
-        }
-      },
-    };
+        },
+
+        'VariableDeclaration[kind="await using"]'(
+          node: TSESTree.VariableDeclaration,
+        ): void {
+          for (const declarator of node.declarations) {
+            const init = declarator.init;
+            if (init == null) {
+              continue;
+            }
+            const type = services.getTypeAtLocation(init);
+            if (isTypeAnyType(type)) {
+              continue;
+            }
+
+            const hasAsyncDisposeSymbol = tsutils
+              .unionConstituents(type)
+              .some(
+                typePart =>
+                  tsutils.getWellKnownSymbolPropertyOfType(
+                    typePart,
+                    'asyncDispose',
+                    checker,
+                  ) != null,
+              );
+
+            if (!hasAsyncDisposeSymbol) {
+              context.report({
+                node: init,
+                messageId: 'awaitUsingOfNonAsyncDisposable',
+                // let the user figure out what to do if there's
+                // await using a = b, c = d, e = f;
+                // it's rare and not worth the complexity to handle.
+                ...getFixOrSuggest({
+                  fixOrSuggest:
+                    node.declarations.length === 1 ? 'suggest' : 'none',
+
+                  suggestion: {
+                    messageId: 'removeAwait',
+                    fix(fixer): TSESLint.RuleFix {
+                      const awaitToken = nullThrows(
+                        context.sourceCode.getFirstToken(node, isAwaitKeyword),
+                        NullThrowsReasons.MissingToken('await', 'await using'),
+                      );
+
+                      return fixer.removeRange(
+                        getAwaitTokenRemovalRange(
+                          context.sourceCode,
+                          awaitToken,
+                        ),
+                      );
+                    },
+                  },
+                }),
+              });
+            }
+          }
+        },
+      };
+    },
   },
 });
 

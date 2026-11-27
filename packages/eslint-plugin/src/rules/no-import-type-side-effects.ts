@@ -30,57 +30,59 @@ export default createRule<Options, MessageIds>({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create(context) {
-    return {
-      'ImportDeclaration[importKind!="type"]'(
-        node: TSESTree.ImportDeclaration,
-      ): void {
-        if (node.specifiers.length === 0) {
-          return;
-        }
-
-        const specifiers: TSESTree.ImportSpecifier[] = [];
-        for (const specifier of node.specifiers) {
-          if (
-            specifier.type !== AST_NODE_TYPES.ImportSpecifier ||
-            specifier.importKind !== 'type'
-          ) {
+  create: {
+    default(context) {
+      return {
+        'ImportDeclaration[importKind!="type"]'(
+          node: TSESTree.ImportDeclaration,
+        ): void {
+          if (node.specifiers.length === 0) {
             return;
           }
-          specifiers.push(specifier);
-        }
 
-        context.report({
-          node,
-          messageId: 'useTopLevelQualifier',
-          fix(fixer) {
-            const fixes: TSESLint.RuleFix[] = [];
-            for (const specifier of specifiers) {
-              const qualifier = nullThrows(
-                context.sourceCode.getFirstToken(specifier, isTypeKeyword),
-                NullThrowsReasons.MissingToken(
-                  'type keyword',
-                  'import specifier',
-                ),
-              );
-              fixes.push(
-                fixer.removeRange([
-                  qualifier.range[0],
-                  specifier.imported.range[0],
-                ]),
-              );
+          const specifiers: TSESTree.ImportSpecifier[] = [];
+          for (const specifier of node.specifiers) {
+            if (
+              specifier.type !== AST_NODE_TYPES.ImportSpecifier ||
+              specifier.importKind !== 'type'
+            ) {
+              return;
             }
+            specifiers.push(specifier);
+          }
 
-            const importKeyword = nullThrows(
-              context.sourceCode.getFirstToken(node, isImportKeyword),
-              NullThrowsReasons.MissingToken('import keyword', 'import'),
-            );
-            fixes.push(fixer.insertTextAfter(importKeyword, ' type'));
+          context.report({
+            node,
+            messageId: 'useTopLevelQualifier',
+            fix(fixer) {
+              const fixes: TSESLint.RuleFix[] = [];
+              for (const specifier of specifiers) {
+                const qualifier = nullThrows(
+                  context.sourceCode.getFirstToken(specifier, isTypeKeyword),
+                  NullThrowsReasons.MissingToken(
+                    'type keyword',
+                    'import specifier',
+                  ),
+                );
+                fixes.push(
+                  fixer.removeRange([
+                    qualifier.range[0],
+                    specifier.imported.range[0],
+                  ]),
+                );
+              }
 
-            return fixes;
-          },
-        });
-      },
-    };
+              const importKeyword = nullThrows(
+                context.sourceCode.getFirstToken(node, isImportKeyword),
+                NullThrowsReasons.MissingToken('import keyword', 'import'),
+              );
+              fixes.push(fixer.insertTextAfter(importKeyword, ' type'));
+
+              return fixes;
+            },
+          });
+        },
+      };
+    },
   },
 });

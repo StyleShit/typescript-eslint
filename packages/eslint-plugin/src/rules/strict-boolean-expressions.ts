@@ -208,7 +208,8 @@ export default createRule<Options, MessageId>({
       allowString: true,
     },
   ],
-  create(context, [options]) {
+  create: {
+    default(context, [options]) {
     const services = getParserServices(context);
     const checker = services.program.getTypeChecker();
     const compilerOptions = services.program.getCompilerOptions();
@@ -1079,6 +1080,7 @@ export default createRule<Options, MessageId>({
 
       return variantTypes;
     }
+    },
   },
 });
 

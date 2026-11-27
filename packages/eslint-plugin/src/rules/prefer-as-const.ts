@@ -25,59 +25,65 @@ export default createRule({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create(context) {
-    function compareTypes(
-      valueNode: TSESTree.Expression,
-      typeNode: TSESTree.TypeNode,
-      canFix: boolean,
-    ): void {
-      if (
-        valueNode.type === AST_NODE_TYPES.Literal &&
-        typeNode.type === AST_NODE_TYPES.TSLiteralType &&
-        typeNode.literal.type === AST_NODE_TYPES.Literal &&
-        valueNode.raw === typeNode.literal.raw
-      ) {
-        if (canFix) {
-          context.report({
-            node: typeNode,
-            messageId: 'preferConstAssertion',
-            fix: fixer => fixer.replaceText(typeNode, 'const'),
-          });
-        } else {
-          context.report({
-            node: typeNode,
-            messageId: 'variableConstAssertion',
-            suggest: [
-              {
-                messageId: 'variableSuggest',
-                fix: (fixer): TSESLint.RuleFix[] => [
-                  fixer.remove(typeNode.parent),
-                  fixer.insertTextAfter(valueNode, ' as const'),
-                ],
-              },
-            ],
-          });
+  create: {
+    default(context) {
+      function compareTypes(
+        valueNode: TSESTree.Expression,
+        typeNode: TSESTree.TypeNode,
+        canFix: boolean,
+      ): void {
+        if (
+          valueNode.type === AST_NODE_TYPES.Literal &&
+          typeNode.type === AST_NODE_TYPES.TSLiteralType &&
+          typeNode.literal.type === AST_NODE_TYPES.Literal &&
+          valueNode.raw === typeNode.literal.raw
+        ) {
+          if (canFix) {
+            context.report({
+              node: typeNode,
+              messageId: 'preferConstAssertion',
+              fix: fixer => fixer.replaceText(typeNode, 'const'),
+            });
+          } else {
+            context.report({
+              node: typeNode,
+              messageId: 'variableConstAssertion',
+              suggest: [
+                {
+                  messageId: 'variableSuggest',
+                  fix: (fixer): TSESLint.RuleFix[] => [
+                    fixer.remove(typeNode.parent),
+                    fixer.insertTextAfter(valueNode, ' as const'),
+                  ],
+                },
+              ],
+            });
+          }
         }
       }
-    }
 
-    return {
-      PropertyDefinition(node): void {
-        if (node.value && node.typeAnnotation) {
-          compareTypes(node.value, node.typeAnnotation.typeAnnotation, false);
-        }
-      },
-      TSAsExpression(node): void {
-        compareTypes(node.expression, node.typeAnnotation, true);
-      },
-      TSTypeAssertion(node): void {
-        compareTypes(node.expression, node.typeAnnotation, true);
-      },
-      VariableDeclarator(node): void {
-        if (node.init && node.id.typeAnnotation) {
-          compareTypes(node.init, node.id.typeAnnotation.typeAnnotation, false);
-        }
-      },
-    };
+      return {
+        PropertyDefinition(node): void {
+          if (node.value && node.typeAnnotation) {
+            compareTypes(node.value, node.typeAnnotation.typeAnnotation, false);
+          }
+        },
+        TSAsExpression(node): void {
+          compareTypes(node.expression, node.typeAnnotation, true);
+        },
+        TSTypeAssertion(node): void {
+          compareTypes(node.expression, node.typeAnnotation, true);
+        },
+        VariableDeclarator(node): void {
+          if (node.init && node.id.typeAnnotation) {
+            compareTypes(
+              node.init,
+              node.id.typeAnnotation.typeAnnotation,
+              false,
+            );
+          }
+        },
+      };
+    },
   },
 });

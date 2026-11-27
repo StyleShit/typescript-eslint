@@ -50,32 +50,34 @@ export default createRule<Options, MessageIds>({
       allowDefinitionFiles: true,
     },
   ],
-  create(context, [{ allowDeclarations, allowDefinitionFiles }]) {
-    function isDeclaration(node: TSESTree.Node): boolean {
-      if (node.type === AST_NODE_TYPES.TSModuleDeclaration && node.declare) {
-        return true;
-      }
-
-      return node.parent != null && isDeclaration(node.parent);
-    }
-
-    return {
-      "TSModuleDeclaration[global!=true][id.type!='Literal']"(
-        node: TSESTree.TSModuleDeclaration,
-      ): void {
-        if (
-          node.parent.type === AST_NODE_TYPES.TSModuleDeclaration ||
-          (allowDefinitionFiles && isDefinitionFile(context.filename)) ||
-          (allowDeclarations && isDeclaration(node))
-        ) {
-          return;
+  create: {
+    default(context, [{ allowDeclarations, allowDefinitionFiles }]) {
+      function isDeclaration(node: TSESTree.Node): boolean {
+        if (node.type === AST_NODE_TYPES.TSModuleDeclaration && node.declare) {
+          return true;
         }
 
-        context.report({
-          node,
-          messageId: 'moduleSyntaxIsPreferred',
-        });
-      },
-    };
+        return node.parent != null && isDeclaration(node.parent);
+      }
+
+      return {
+        "TSModuleDeclaration[global!=true][id.type!='Literal']"(
+          node: TSESTree.TSModuleDeclaration,
+        ): void {
+          if (
+            node.parent.type === AST_NODE_TYPES.TSModuleDeclaration ||
+            (allowDefinitionFiles && isDefinitionFile(context.filename)) ||
+            (allowDeclarations && isDeclaration(node))
+          ) {
+            return;
+          }
+
+          context.report({
+            node,
+            messageId: 'moduleSyntaxIsPreferred',
+          });
+        },
+      };
+    },
   },
 });

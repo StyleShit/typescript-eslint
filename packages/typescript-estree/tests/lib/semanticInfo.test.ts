@@ -122,7 +122,7 @@ describe('semanticInfo', async () => {
   });
 
   // tsgo ignores `project` and has no getResolvedProjectReferences.
-  it.skipIf(process.env.TYPESCRIPT_ESLINT_EXPERIMENTAL_BACKEND === 'tsgo')(
+  it.skipIf(process.env.TYPESCRIPT_ESLINT_BACKEND === 'tsgo')(
     `should resolve absolute and relative tsconfig paths the same`,
     async () => {
       const filename = testFiles[0];
