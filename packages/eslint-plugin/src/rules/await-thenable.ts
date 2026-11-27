@@ -80,11 +80,12 @@ export default createRule<Options, MessageId>({
   defaultOptions: [{ allowMixedPromiseArrays: false }],
 
   backends: {
-    tsgo: create =>
-      // eslint-disable-next-line @typescript-eslint/no-require-imports -- loaded only when tsgo is in use
-      (require('./tsgo/await-thenable') as typeof TsgoAwaitThenable).createTsgo(
-        create,
-      ),
+    tsgo: create => {
+      const tsgo =
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- loaded only when tsgo is in use
+        require('./tsgo/await-thenable') as typeof TsgoAwaitThenable;
+      return tsgo.createTsgo(create);
+    },
   },
 
   create(context, [{ allowMixedPromiseArrays = false }]) {

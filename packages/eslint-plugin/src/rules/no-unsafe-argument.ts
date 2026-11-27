@@ -4,6 +4,8 @@ import { AST_NODE_TYPES } from '@typescript-eslint/utils';
 import * as tsutils from 'ts-api-utils';
 import * as ts from 'typescript';
 
+import type * as TsgoNoUnsafeArgument from './tsgo/no-unsafe-argument';
+
 import {
   createRule,
   FunctionSignature,
@@ -37,6 +39,15 @@ export default createRule<[], MessageIds>({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
+  backends: {
+    tsgo: create => {
+      const tsgo =
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- loaded only when tsgo is in use
+        require('./tsgo/no-unsafe-argument') as typeof TsgoNoUnsafeArgument;
+      return tsgo.createTsgo(create);
+    },
+  },
+
   create(context) {
     const services = getParserServices(context);
     const checker = services.program.getTypeChecker();

@@ -4,6 +4,8 @@ import { AST_NODE_TYPES } from '@typescript-eslint/utils';
 import * as tsutils from 'ts-api-utils';
 import * as ts from 'typescript';
 
+import type * as TsgoNoMisusedPromises from './tsgo/no-misused-promises';
+
 import {
   createRule,
   getConstrainedTypeAtLocation,
@@ -199,6 +201,15 @@ export default createRule<Options, MessageId>({
       checksVoidReturn: true,
     },
   ],
+
+  backends: {
+    tsgo: create => {
+      const tsgo =
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- loaded only when tsgo is in use
+        require('./tsgo/no-misused-promises') as typeof TsgoNoMisusedPromises;
+      return tsgo.createTsgo(create);
+    },
+  },
 
   create(context, [{ checksConditionals, checksSpreads, checksVoidReturn }]) {
     const services = getParserServices(context);

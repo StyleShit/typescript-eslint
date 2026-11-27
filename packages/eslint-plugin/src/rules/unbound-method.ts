@@ -4,6 +4,8 @@ import { AST_NODE_TYPES } from '@typescript-eslint/utils';
 import * as tsutils from 'ts-api-utils';
 import * as ts from 'typescript';
 
+import type * as TsgoUnboundMethod from './tsgo/unbound-method';
+
 import {
   createRule,
   getModifiers,
@@ -173,6 +175,15 @@ export default createRule<Options, MessageIds>({
       ignoreStatic: false,
     },
   ],
+  backends: {
+    tsgo: create => {
+      const tsgo =
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- loaded only when tsgo is in use
+        require('./tsgo/unbound-method') as typeof TsgoUnboundMethod;
+      return tsgo.createTsgo(create);
+    },
+  },
+
   create(context, [{ ignoreStatic }]) {
     const services = getParserServices(context);
     const currentSourceFile = services.program.getSourceFile(context.filename);
@@ -444,7 +455,7 @@ function checkMethod(
   };
 }
 
-function isSafeUse(node: TSESTree.Node): boolean {
+export function isSafeUse(node: TSESTree.Node): boolean {
   const parent = node.parent;
 
   switch (parent?.type) {
