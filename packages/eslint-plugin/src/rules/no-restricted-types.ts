@@ -135,100 +135,98 @@ export default createRule<Options, MessageIds>({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [{}],
-  create: {
-    default(context, [{ types = {} }]) {
-      const bannedTypes = new Map(
-        Object.entries(types).map(([type, data]) => [removeSpaces(type), data]),
-      );
+  create(context, [{ types = {} }]) {
+    const bannedTypes = new Map(
+      Object.entries(types).map(([type, data]) => [removeSpaces(type), data]),
+    );
 
-      function checkBannedTypes(
-        typeNode: TSESTree.Node,
-        name = stringifyNode(typeNode, context.sourceCode),
-      ): void {
-        const bannedType = bannedTypes.get(name);
+    function checkBannedTypes(
+      typeNode: TSESTree.Node,
+      name = stringifyNode(typeNode, context.sourceCode),
+    ): void {
+      const bannedType = bannedTypes.get(name);
 
-        if (bannedType == null || bannedType === false) {
-          return;
-        }
-
-        const customMessage = getCustomMessage(bannedType);
-        const fixWith =
-          bannedType && typeof bannedType === 'object' && bannedType.fixWith;
-        const suggest =
-          bannedType && typeof bannedType === 'object'
-            ? bannedType.suggest
-            : undefined;
-
-        context.report({
-          node: typeNode,
-          messageId: 'bannedTypeMessage',
-          data: {
-            name,
-            customMessage,
-          },
-          fix: fixWith
-            ? (fixer): TSESLint.RuleFix => fixer.replaceText(typeNode, fixWith)
-            : null,
-          suggest: suggest?.map(replacement => ({
-            messageId: 'bannedTypeReplacement',
-            data: {
-              name,
-              replacement,
-            },
-            fix: (fixer): TSESLint.RuleFix =>
-              fixer.replaceText(typeNode, replacement),
-          })),
-        });
+      if (bannedType == null || bannedType === false) {
+        return;
       }
 
-      const keywordSelectors = objectReduceKey(
-        TYPE_KEYWORDS,
-        (acc: TSESLint.RuleListener, keyword) => {
-          if (bannedTypes.has(keyword)) {
-            acc[TYPE_KEYWORDS[keyword]] = (node: TSESTree.Node): void =>
-              checkBannedTypes(node, keyword);
-          }
+      const customMessage = getCustomMessage(bannedType);
+      const fixWith =
+        bannedType && typeof bannedType === 'object' && bannedType.fixWith;
+      const suggest =
+        bannedType && typeof bannedType === 'object'
+          ? bannedType.suggest
+          : undefined;
 
-          return acc;
+      context.report({
+        node: typeNode,
+        messageId: 'bannedTypeMessage',
+        data: {
+          name,
+          customMessage,
         },
-        {},
-      );
+        fix: fixWith
+          ? (fixer): TSESLint.RuleFix => fixer.replaceText(typeNode, fixWith)
+          : null,
+        suggest: suggest?.map(replacement => ({
+          messageId: 'bannedTypeReplacement',
+          data: {
+            name,
+            replacement,
+          },
+          fix: (fixer): TSESLint.RuleFix =>
+            fixer.replaceText(typeNode, replacement),
+        })),
+      });
+    }
 
-      return {
-        ...keywordSelectors,
+    const keywordSelectors = objectReduceKey(
+      TYPE_KEYWORDS,
+      (acc: TSESLint.RuleListener, keyword) => {
+        if (bannedTypes.has(keyword)) {
+          acc[TYPE_KEYWORDS[keyword]] = (node: TSESTree.Node): void =>
+            checkBannedTypes(node, keyword);
+        }
 
-        TSClassImplements(node): void {
-          checkBannedTypes(node.expression);
+        return acc;
+      },
+      {},
+    );
 
-          if (node.typeArguments) {
-            checkBannedTypes(node);
-          }
-        },
-        TSInterfaceHeritage(node): void {
-          checkBannedTypes(node.expression);
+    return {
+      ...keywordSelectors,
 
-          if (node.typeArguments) {
-            checkBannedTypes(node);
-          }
-        },
-        TSTupleType(node): void {
-          if (!node.elementTypes.length) {
-            checkBannedTypes(node);
-          }
-        },
-        TSTypeLiteral(node): void {
-          if (!node.members.length) {
-            checkBannedTypes(node);
-          }
-        },
-        TSTypeReference(node): void {
-          checkBannedTypes(node.typeName);
+      TSClassImplements(node): void {
+        checkBannedTypes(node.expression);
 
-          if (node.typeArguments) {
-            checkBannedTypes(node);
-          }
-        },
-      };
-    },
+        if (node.typeArguments) {
+          checkBannedTypes(node);
+        }
+      },
+      TSInterfaceHeritage(node): void {
+        checkBannedTypes(node.expression);
+
+        if (node.typeArguments) {
+          checkBannedTypes(node);
+        }
+      },
+      TSTupleType(node): void {
+        if (!node.elementTypes.length) {
+          checkBannedTypes(node);
+        }
+      },
+      TSTypeLiteral(node): void {
+        if (!node.members.length) {
+          checkBannedTypes(node);
+        }
+      },
+      TSTypeReference(node): void {
+        checkBannedTypes(node.typeName);
+
+        if (node.typeArguments) {
+          checkBannedTypes(node);
+        }
+      },
+    };
   },
 });

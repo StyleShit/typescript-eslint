@@ -64,122 +64,115 @@ export default createRule<[], MessageId>({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create: {
-    default(context) {
-      function confusingOperatorToMessageData(
-        operator: ConfusingOperator,
-      ): Pick<ReportDescriptor<MessageId>, 'data' | 'messageId'> {
-        switch (operator) {
-          case '=':
-            return {
-              messageId: 'confusingAssign',
-            };
-          case '==':
-          case '===':
-            return {
-              messageId: 'confusingEqual',
-            };
-          case 'in':
-          case 'instanceof':
-            return {
-              messageId: 'confusingOperator',
-              data: { operator },
-            };
-          // istanbul ignore next
-          default:
-            operator satisfies never;
-            throw new Error(`Unexpected operator ${operator as string}`);
-        }
+  create(context) {
+    function confusingOperatorToMessageData(
+      operator: ConfusingOperator,
+    ): Pick<ReportDescriptor<MessageId>, 'data' | 'messageId'> {
+      switch (operator) {
+        case '=':
+          return {
+            messageId: 'confusingAssign',
+          };
+        case '==':
+        case '===':
+          return {
+            messageId: 'confusingEqual',
+          };
+        case 'in':
+        case 'instanceof':
+          return {
+            messageId: 'confusingOperator',
+            data: { operator },
+          };
+        // istanbul ignore next
+        default:
+          operator satisfies never;
+          throw new Error(`Unexpected operator ${operator as string}`);
       }
+    }
 
-      return {
-        'BinaryExpression, AssignmentExpression'(
-          node: TSESTree.AssignmentExpression | TSESTree.BinaryExpression,
-        ): void {
-          const operator = node.operator;
+    return {
+      'BinaryExpression, AssignmentExpression'(
+        node: TSESTree.AssignmentExpression | TSESTree.BinaryExpression,
+      ): void {
+        const operator = node.operator;
 
-          if (isConfusingOperator(operator)) {
-            // Look for a non-null assertion as the last token on the left hand side.
-            // That way, we catch things like `1 + two! === 3`, even though the left
-            // hand side isn't a non-null assertion AST node.
-            const leftHandFinalToken = context.sourceCode.getLastToken(
-              node.left,
-            );
-            const tokenAfterLeft = context.sourceCode.getTokenAfter(node.left);
-            if (
-              leftHandFinalToken?.type === AST_TOKEN_TYPES.Punctuator &&
-              leftHandFinalToken.value === '!' &&
-              tokenAfterLeft?.value !== ')'
-            ) {
-              if (node.left.type === AST_NODE_TYPES.TSNonNullExpression) {
-                let suggestions: TSESLint.SuggestionReportDescriptor<MessageId>[];
-                switch (operator) {
-                  case '=':
-                    suggestions = [
-                      {
-                        messageId: 'notNeedInAssign',
-                        fix: (fixer): RuleFix =>
-                          fixer.remove(leftHandFinalToken),
-                      },
-                    ];
-                    break;
+        if (isConfusingOperator(operator)) {
+          // Look for a non-null assertion as the last token on the left hand side.
+          // That way, we catch things like `1 + two! === 3`, even though the left
+          // hand side isn't a non-null assertion AST node.
+          const leftHandFinalToken = context.sourceCode.getLastToken(node.left);
+          const tokenAfterLeft = context.sourceCode.getTokenAfter(node.left);
+          if (
+            leftHandFinalToken?.type === AST_TOKEN_TYPES.Punctuator &&
+            leftHandFinalToken.value === '!' &&
+            tokenAfterLeft?.value !== ')'
+          ) {
+            if (node.left.type === AST_NODE_TYPES.TSNonNullExpression) {
+              let suggestions: TSESLint.SuggestionReportDescriptor<MessageId>[];
+              switch (operator) {
+                case '=':
+                  suggestions = [
+                    {
+                      messageId: 'notNeedInAssign',
+                      fix: (fixer): RuleFix => fixer.remove(leftHandFinalToken),
+                    },
+                  ];
+                  break;
 
-                  case '==':
-                  case '===':
-                    suggestions = [
-                      {
-                        messageId: 'notNeedInEqualTest',
-                        fix: (fixer): RuleFix =>
-                          fixer.remove(leftHandFinalToken),
-                      },
-                    ];
-                    break;
+                case '==':
+                case '===':
+                  suggestions = [
+                    {
+                      messageId: 'notNeedInEqualTest',
+                      fix: (fixer): RuleFix => fixer.remove(leftHandFinalToken),
+                    },
+                  ];
+                  break;
 
-                  case 'in':
-                  case 'instanceof':
-                    suggestions = [
-                      {
-                        messageId: 'notNeedInOperator',
-                        data: { operator },
-                        fix: (fixer): RuleFix =>
-                          fixer.remove(leftHandFinalToken),
-                      },
-                      {
-                        messageId: 'wrapUpLeft',
-                        data: { operator },
-                        fix: wrapUpLeftFixer(node),
-                      },
-                    ];
-                    break;
-
-                  // istanbul ignore next
-                  default:
-                    operator satisfies never;
-                    return;
-                }
-                context.report({
-                  node,
-                  ...confusingOperatorToMessageData(operator),
-                  suggest: suggestions,
-                });
-              } else {
-                context.report({
-                  node,
-                  ...confusingOperatorToMessageData(operator),
-                  suggest: [
+                case 'in':
+                case 'instanceof':
+                  suggestions = [
+                    {
+                      messageId: 'notNeedInOperator',
+                      data: { operator },
+                      fix: (fixer): RuleFix => fixer.remove(leftHandFinalToken),
+                    },
                     {
                       messageId: 'wrapUpLeft',
                       data: { operator },
                       fix: wrapUpLeftFixer(node),
                     },
-                  ],
-                });
+                  ];
+                  break;
+
+                // istanbul ignore next
+                default:
+                  operator satisfies never;
+                  return;
               }
+              context.report({
+                node,
+                ...confusingOperatorToMessageData(operator),
+                suggest: suggestions,
+              });
+            } else {
+              context.report({
+                node,
+                ...confusingOperatorToMessageData(operator),
+                suggest: [
+                  {
+                    messageId: 'wrapUpLeft',
+                    data: { operator },
+                    fix: wrapUpLeftFixer(node),
+                  },
+                ],
+              });
             }
           }
-        },
-      };
-    },
+        }
+      },
+    };
   },
 });
 

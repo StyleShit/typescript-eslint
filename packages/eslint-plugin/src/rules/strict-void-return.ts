@@ -60,8 +60,7 @@ export default util.createRule<Options, MessageId>({
     },
   ],
 
-  create: {
-    default(context, [options]) {
+  create(context, [options]) {
     const sourceCode = context.sourceCode;
     const parserServices = util.getParserServices(context);
     const checker = parserServices.program.getTypeChecker();
@@ -583,6 +582,5 @@ export default util.createRule<Options, MessageId>({
         yield fixer.insertTextAfter(funcNode.body, ')(); }');
       }
     }
-    },
   },
 });

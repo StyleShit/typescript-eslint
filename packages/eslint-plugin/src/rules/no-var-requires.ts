@@ -51,65 +51,60 @@ export default createRule<Options, MessageIds>({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [{ allow: [] }],
-  create: {
-    default(context, options) {
-      const allowPatterns = options[0].allow.map(
-        pattern => new RegExp(pattern, 'u'),
+  create(context, options) {
+    const allowPatterns = options[0].allow.map(
+      pattern => new RegExp(pattern, 'u'),
+    );
+    function isImportPathAllowed(importPath: string): boolean {
+      return allowPatterns.some(pattern => importPath.match(pattern));
+    }
+
+    function isStringOrTemplateLiteral(node: TSESTree.Node): boolean {
+      return (
+        (node.type === AST_NODE_TYPES.Literal &&
+          typeof node.value === 'string') ||
+        node.type === AST_NODE_TYPES.TemplateLiteral
       );
-      function isImportPathAllowed(importPath: string): boolean {
-        return allowPatterns.some(pattern => importPath.match(pattern));
-      }
+    }
 
-      function isStringOrTemplateLiteral(node: TSESTree.Node): boolean {
-        return (
-          (node.type === AST_NODE_TYPES.Literal &&
-            typeof node.value === 'string') ||
-          node.type === AST_NODE_TYPES.TemplateLiteral
-        );
-      }
-
-      return {
-        'CallExpression[callee.name="require"]'(
-          node: TSESTree.CallExpression,
-        ): void {
-          if (
-            node.arguments[0] &&
-            isStringOrTemplateLiteral(node.arguments[0])
-          ) {
-            const argValue = getStaticStringValue(node.arguments[0]);
-            if (typeof argValue === 'string' && isImportPathAllowed(argValue)) {
-              return;
-            }
+    return {
+      'CallExpression[callee.name="require"]'(
+        node: TSESTree.CallExpression,
+      ): void {
+        if (node.arguments[0] && isStringOrTemplateLiteral(node.arguments[0])) {
+          const argValue = getStaticStringValue(node.arguments[0]);
+          if (typeof argValue === 'string' && isImportPathAllowed(argValue)) {
+            return;
           }
-          const parent =
-            node.parent.type === AST_NODE_TYPES.ChainExpression
-              ? node.parent.parent
-              : node.parent;
+        }
+        const parent =
+          node.parent.type === AST_NODE_TYPES.ChainExpression
+            ? node.parent.parent
+            : node.parent;
 
-          if (
-            [
-              AST_NODE_TYPES.CallExpression,
-              AST_NODE_TYPES.MemberExpression,
-              AST_NODE_TYPES.NewExpression,
-              AST_NODE_TYPES.TSAsExpression,
-              AST_NODE_TYPES.TSTypeAssertion,
-              AST_NODE_TYPES.VariableDeclarator,
-            ].includes(parent.type)
-          ) {
-            const variable = ASTUtils.findVariable(
-              context.sourceCode.getScope(node),
-              'require',
-            );
+        if (
+          [
+            AST_NODE_TYPES.CallExpression,
+            AST_NODE_TYPES.MemberExpression,
+            AST_NODE_TYPES.NewExpression,
+            AST_NODE_TYPES.TSAsExpression,
+            AST_NODE_TYPES.TSTypeAssertion,
+            AST_NODE_TYPES.VariableDeclarator,
+          ].includes(parent.type)
+        ) {
+          const variable = ASTUtils.findVariable(
+            context.sourceCode.getScope(node),
+            'require',
+          );
 
-            if (!variable?.identifiers.length) {
-              context.report({
-                node,
-                messageId: 'noVarReqs',
-              });
-            }
+          if (!variable?.identifiers.length) {
+            context.report({
+              node,
+              messageId: 'noVarReqs',
+            });
           }
-        },
-      };
-    },
+        }
+      },
+    };
   },
 });

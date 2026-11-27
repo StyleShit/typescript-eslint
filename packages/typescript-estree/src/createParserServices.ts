@@ -1,10 +1,7 @@
 import type * as ts from 'typescript';
 
 import type { ASTMaps } from './convert';
-import type {
-  NativeParserServices,
-  ParserServices,
-} from './parser-options';
+import type { NativeParserServices, ParserServices } from './parser-options';
 
 export function createParserServices(
   astMaps: ASTMaps,

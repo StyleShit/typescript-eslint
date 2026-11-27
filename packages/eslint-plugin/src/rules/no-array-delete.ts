@@ -30,85 +30,83 @@ export default createRule<[], MessageId>({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create: {
-    default(context) {
-      const services = getParserServices(context);
-      const checker = services.program.getTypeChecker();
+  create(context) {
+    const services = getParserServices(context);
+    const checker = services.program.getTypeChecker();
 
-      function isUnderlyingTypeArray(type: ts.Type): boolean {
-        const predicate = (t: ts.Type): boolean =>
-          checker.isArrayType(t) || checker.isTupleType(t);
+    function isUnderlyingTypeArray(type: ts.Type): boolean {
+      const predicate = (t: ts.Type): boolean =>
+        checker.isArrayType(t) || checker.isTupleType(t);
 
-        if (type.isUnion()) {
-          return type.types.every(predicate);
-        }
-
-        if (type.isIntersection()) {
-          return type.types.some(predicate);
-        }
-
-        return predicate(type);
+      if (type.isUnion()) {
+        return type.types.every(predicate);
       }
 
-      return {
-        'UnaryExpression[operator="delete"]'(
-          node: TSESTree.UnaryExpression,
-        ): void {
-          const { argument } = node;
+      if (type.isIntersection()) {
+        return type.types.some(predicate);
+      }
 
-          if (argument.type !== AST_NODE_TYPES.MemberExpression) {
-            return;
-          }
+      return predicate(type);
+    }
 
-          const type = getConstrainedTypeAtLocation(services, argument.object);
+    return {
+      'UnaryExpression[operator="delete"]'(
+        node: TSESTree.UnaryExpression,
+      ): void {
+        const { argument } = node;
 
-          if (!isUnderlyingTypeArray(type)) {
-            return;
-          }
+        if (argument.type !== AST_NODE_TYPES.MemberExpression) {
+          return;
+        }
 
-          context.report({
-            node,
-            messageId: 'noArrayDelete',
-            suggest: [
-              {
-                messageId: 'useSplice',
-                fix(fixer): TSESLint.RuleFix | null {
-                  const { object, property } = argument;
+        const type = getConstrainedTypeAtLocation(services, argument.object);
 
-                  const shouldHaveParentheses =
-                    property.type === AST_NODE_TYPES.SequenceExpression;
+        if (!isUnderlyingTypeArray(type)) {
+          return;
+        }
 
-                  const nodeMap = services.esTreeNodeToTSNodeMap;
-                  const target = nodeMap.get(object).getText();
-                  const rawKey = nodeMap.get(property).getText();
-                  const key = shouldHaveParentheses ? `(${rawKey})` : rawKey;
+        context.report({
+          node,
+          messageId: 'noArrayDelete',
+          suggest: [
+            {
+              messageId: 'useSplice',
+              fix(fixer): TSESLint.RuleFix | null {
+                const { object, property } = argument;
 
-                  let suggestion = `${target}.splice(${key}, 1)`;
+                const shouldHaveParentheses =
+                  property.type === AST_NODE_TYPES.SequenceExpression;
 
-                  const comments = context.sourceCode.getCommentsInside(node);
+                const nodeMap = services.esTreeNodeToTSNodeMap;
+                const target = nodeMap.get(object).getText();
+                const rawKey = nodeMap.get(property).getText();
+                const key = shouldHaveParentheses ? `(${rawKey})` : rawKey;
 
-                  if (comments.length > 0) {
-                    const indentationCount = node.loc.start.column;
-                    const indentation = ' '.repeat(indentationCount);
+                let suggestion = `${target}.splice(${key}, 1)`;
 
-                    const commentsText = comments
-                      .map(comment => {
-                        return comment.type === AST_TOKEN_TYPES.Line
-                          ? `//${comment.value}`
-                          : `/*${comment.value}*/`;
-                      })
-                      .join(`\n${indentation}`);
+                const comments = context.sourceCode.getCommentsInside(node);
 
-                    suggestion = `${commentsText}\n${indentation}${suggestion}`;
-                  }
+                if (comments.length > 0) {
+                  const indentationCount = node.loc.start.column;
+                  const indentation = ' '.repeat(indentationCount);
 
-                  return fixer.replaceText(node, suggestion);
-                },
+                  const commentsText = comments
+                    .map(comment => {
+                      return comment.type === AST_TOKEN_TYPES.Line
+                        ? `//${comment.value}`
+                        : `/*${comment.value}*/`;
+                    })
+                    .join(`\n${indentation}`);
+
+                  suggestion = `${commentsText}\n${indentation}${suggestion}`;
+                }
+
+                return fixer.replaceText(node, suggestion);
               },
-            ],
-          });
-        },
-      };
-    },
+            },
+          ],
+        });
+      },
+    };
   },
 });

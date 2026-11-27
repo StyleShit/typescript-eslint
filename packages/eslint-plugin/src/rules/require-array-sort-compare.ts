@@ -52,8 +52,7 @@ export default createRule<Options, MessageIds>({
     },
   ],
 
-  create: {
-    default(context, [options]) {
+  create(context, [options]) {
     const services = getParserServices(context);
     const checker = services.program.getTypeChecker();
 
@@ -103,7 +102,6 @@ export default createRule<Options, MessageIds>({
       'CallExpression[arguments.length=0] > MemberExpression':
         checkSortArgument,
     };
-    },
   },
 });
 

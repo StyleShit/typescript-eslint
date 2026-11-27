@@ -41,47 +41,45 @@ export default createRule({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create: {
-    default(context) {
-      // In a definition file, export {} is necessary to make the module properly
-      // encapsulated, even when there are other exports
-      // https://github.com/typescript-eslint/typescript-eslint/issues/4975
-      if (isDefinitionFile(context.filename)) {
-        return {};
+  create(context) {
+    // In a definition file, export {} is necessary to make the module properly
+    // encapsulated, even when there are other exports
+    // https://github.com/typescript-eslint/typescript-eslint/issues/4975
+    if (isDefinitionFile(context.filename)) {
+      return {};
+    }
+    function checkNode(
+      node: TSESTree.Program | TSESTree.TSModuleDeclaration,
+    ): void {
+      if (!Array.isArray(node.body)) {
+        return;
       }
-      function checkNode(
-        node: TSESTree.Program | TSESTree.TSModuleDeclaration,
-      ): void {
-        if (!Array.isArray(node.body)) {
-          return;
-        }
 
-        const emptyExports: TSESTree.ExportNamedDeclaration[] = [];
-        let foundOtherExport = false;
+      const emptyExports: TSESTree.ExportNamedDeclaration[] = [];
+      let foundOtherExport = false;
 
-        for (const statement of node.body) {
-          if (isEmptyExport(statement)) {
-            emptyExports.push(statement);
-          } else if (exportOrImportNodeTypes.has(statement.type)) {
-            foundOtherExport = true;
-          }
-        }
-
-        if (foundOtherExport) {
-          for (const emptyExport of emptyExports) {
-            context.report({
-              node: emptyExport,
-              messageId: 'uselessExport',
-              fix: fixer => fixer.remove(emptyExport),
-            });
-          }
+      for (const statement of node.body) {
+        if (isEmptyExport(statement)) {
+          emptyExports.push(statement);
+        } else if (exportOrImportNodeTypes.has(statement.type)) {
+          foundOtherExport = true;
         }
       }
 
-      return {
-        Program: checkNode,
-        TSModuleDeclaration: checkNode,
-      };
-    },
+      if (foundOtherExport) {
+        for (const emptyExport of emptyExports) {
+          context.report({
+            node: emptyExport,
+            messageId: 'uselessExport',
+            fix: fixer => fixer.remove(emptyExport),
+          });
+        }
+      }
+    }
+
+    return {
+      Program: checkNode,
+      TSModuleDeclaration: checkNode,
+    };
   },
 });

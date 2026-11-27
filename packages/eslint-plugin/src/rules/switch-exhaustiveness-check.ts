@@ -106,8 +106,7 @@ export default createRule<Options, MessageIds>({
       requireDefaultForNonUnion: false,
     },
   ],
-  create: {
-    default(
+  create(
     context,
     [
       {
@@ -410,7 +409,6 @@ export default createRule<Options, MessageIds>({
         checkSwitchNoUnionDefaultCase(node, switchMetadata);
       },
     };
-    },
   },
 });
 

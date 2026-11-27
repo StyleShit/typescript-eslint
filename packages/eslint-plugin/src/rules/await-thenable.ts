@@ -7,6 +7,8 @@ import type * as ts from 'typescript';
 import { TSESTree } from '@typescript-eslint/utils';
 import * as tsutils from 'ts-api-utils';
 
+import type * as TsgoAwaitThenable from './tsgo/await-thenable';
+
 import {
   Awaitable,
   createRule,
@@ -77,166 +79,174 @@ export default createRule<Options, MessageId>({
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [{ allowMixedPromiseArrays: false }],
 
-  create: {
-    default(context, [{ allowMixedPromiseArrays = false }]) {
-      const services = getParserServices(context);
-      const checker = services.program.getTypeChecker();
+  backends: {
+    tsgo: create =>
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- loaded only when tsgo is in use
+      (require('./tsgo/await-thenable') as typeof TsgoAwaitThenable).createTsgo(
+        create,
+      ),
+  },
 
-      return {
-        AwaitExpression(node): void {
-          const awaitArgumentEsNode = node.argument;
-          const awaitArgumentType =
-            services.getTypeAtLocation(awaitArgumentEsNode);
-          const awaitArgumentTsNode =
-            services.esTreeNodeToTSNodeMap.get(awaitArgumentEsNode);
+  create(context, [{ allowMixedPromiseArrays = false }]) {
+    const services = getParserServices(context);
+    const checker = services.program.getTypeChecker();
 
-          const certainty = needsToBeAwaited(
-            checker,
-            awaitArgumentTsNode,
-            awaitArgumentType,
-          );
+    return {
+      AwaitExpression(node): void {
+        const awaitArgumentEsNode = node.argument;
+        const awaitArgumentType =
+          services.getTypeAtLocation(awaitArgumentEsNode);
+        const awaitArgumentTsNode =
+          services.esTreeNodeToTSNodeMap.get(awaitArgumentEsNode);
 
-          if (certainty === Awaitable.Never) {
-            context.report({
-              node,
-              messageId: 'await',
-              suggest: [
-                {
-                  messageId: 'removeAwait',
-                  fix(fixer) {
-                    const awaitKeyword = nullThrows(
-                      context.sourceCode.getFirstToken(node, isAwaitKeyword),
-                      NullThrowsReasons.MissingToken(
-                        'await',
-                        'await expression',
-                      ),
-                    );
+        const certainty = needsToBeAwaited(
+          checker,
+          awaitArgumentTsNode,
+          awaitArgumentType,
+        );
 
-                    const awaitTokenRemovalRange = getAwaitTokenRemovalRange(
-                      context.sourceCode,
-                      awaitKeyword,
-                    );
-                    const awaitRemovalFix = fixer.removeRange(
-                      awaitTokenRemovalRange,
-                    );
+        if (certainty === Awaitable.Never) {
+          reportNonThenableAwait(context, node);
+        }
+      },
 
-                    const firstOperandToken = nullThrows(
-                      context.sourceCode.getTokenAfter(awaitKeyword),
-                      NullThrowsReasons.MissingToken(
-                        'operand',
-                        'await expression',
-                      ),
-                    );
-                    if (
-                      isStartOfArrowFunctionBodyNeedingParentheses(
-                        node,
-                        firstOperandToken,
-                        context.sourceCode,
-                      ) ||
-                      isStartOfExpressionStatementNeedingParentheses(
-                        node,
-                        firstOperandToken,
-                      )
-                    ) {
-                      return [
-                        awaitRemovalFix,
-                        fixer.insertTextBefore(awaitArgumentEsNode, '('),
-                        fixer.insertTextAfter(awaitArgumentEsNode, ')'),
-                      ];
-                    }
+      CallExpression(node: TSESTree.CallExpression): void {
+        if (!isPromiseAggregatorMethod(context, services, node)) {
+          return;
+        }
 
-                    return awaitRemovalFix;
-                  },
-                },
-              ],
-            });
-          }
-        },
+        const argument = node.arguments.at(0);
 
-        CallExpression(node: TSESTree.CallExpression): void {
-          if (!isPromiseAggregatorMethod(context, services, node)) {
-            return;
-          }
+        if (argument == null) {
+          return;
+        }
 
-          const argument = node.arguments.at(0);
+        if (
+          allowMixedPromiseArrays &&
+          hasMaybeAwaitableValue(services, argument)
+        ) {
+          return;
+        }
 
-          if (argument == null) {
-            return;
-          }
-
-          if (
-            allowMixedPromiseArrays &&
-            hasMaybeAwaitableValue(services, argument)
-          ) {
-            return;
-          }
-
-          if (argument.type === TSESTree.AST_NODE_TYPES.ArrayExpression) {
-            for (const element of argument.elements) {
-              if (element == null) {
-                continue;
-              }
-
-              const type = getConstrainedTypeAtLocation(services, element);
-              const tsNode = services.esTreeNodeToTSNodeMap.get(element);
-
-              if (isAlwaysNonAwaitableType(type, tsNode, checker)) {
-                context.report({
-                  node: element,
-                  messageId: 'invalidPromiseAggregatorInput',
-                });
-              }
+        if (argument.type === TSESTree.AST_NODE_TYPES.ArrayExpression) {
+          for (const element of argument.elements) {
+            if (element == null) {
+              continue;
             }
 
-            return;
+            const type = getConstrainedTypeAtLocation(services, element);
+            const tsNode = services.esTreeNodeToTSNodeMap.get(element);
+
+            if (isAlwaysNonAwaitableType(type, tsNode, checker)) {
+              context.report({
+                node: element,
+                messageId: 'invalidPromiseAggregatorInput',
+              });
+            }
           }
 
-          const type = getConstrainedTypeAtLocation(services, argument);
+          return;
+        }
 
-          if (
-            isInvalidPromiseAggregatorInput(
-              checker,
-              services.esTreeNodeToTSNodeMap.get(argument),
-              type,
-            )
-          ) {
-            context.report({
-              node: argument,
-              messageId: 'invalidPromiseAggregatorInput',
-            });
+        const type = getConstrainedTypeAtLocation(services, argument);
+
+        if (
+          isInvalidPromiseAggregatorInput(
+            checker,
+            services.esTreeNodeToTSNodeMap.get(argument),
+            type,
+          )
+        ) {
+          context.report({
+            node: argument,
+            messageId: 'invalidPromiseAggregatorInput',
+          });
+        }
+      },
+
+      'ForOfStatement[await=true]'(node: TSESTree.ForOfStatement): void {
+        const type = services.getTypeAtLocation(node.right);
+        if (isTypeAnyType(type)) {
+          return;
+        }
+
+        const hasAsyncIteratorSymbol = tsutils
+          .unionConstituents(type)
+          .some(
+            typePart =>
+              tsutils.getWellKnownSymbolPropertyOfType(
+                typePart,
+                'asyncIterator',
+                checker,
+              ) != null,
+          );
+
+        if (!hasAsyncIteratorSymbol) {
+          context.report({
+            loc: getForStatementHeadLoc(context.sourceCode, node),
+            messageId: 'forAwaitOfNonAsyncIterable',
+            suggest: [
+              // Note that this suggestion causes broken code for sync iterables
+              // of promises, since the loop variable is not awaited.
+              {
+                messageId: 'convertToOrdinaryFor',
+                fix(fixer): TSESLint.RuleFix {
+                  const awaitToken = nullThrows(
+                    context.sourceCode.getFirstToken(node, isAwaitKeyword),
+                    NullThrowsReasons.MissingToken('await', 'for await loop'),
+                  );
+
+                  return fixer.removeRange(
+                    getAwaitTokenRemovalRange(context.sourceCode, awaitToken),
+                  );
+                },
+              },
+            ],
+          });
+        }
+      },
+
+      'VariableDeclaration[kind="await using"]'(
+        node: TSESTree.VariableDeclaration,
+      ): void {
+        for (const declarator of node.declarations) {
+          const init = declarator.init;
+          if (init == null) {
+            continue;
           }
-        },
-
-        'ForOfStatement[await=true]'(node: TSESTree.ForOfStatement): void {
-          const type = services.getTypeAtLocation(node.right);
+          const type = services.getTypeAtLocation(init);
           if (isTypeAnyType(type)) {
-            return;
+            continue;
           }
 
-          const hasAsyncIteratorSymbol = tsutils
+          const hasAsyncDisposeSymbol = tsutils
             .unionConstituents(type)
             .some(
               typePart =>
                 tsutils.getWellKnownSymbolPropertyOfType(
                   typePart,
-                  'asyncIterator',
+                  'asyncDispose',
                   checker,
                 ) != null,
             );
 
-          if (!hasAsyncIteratorSymbol) {
+          if (!hasAsyncDisposeSymbol) {
             context.report({
-              loc: getForStatementHeadLoc(context.sourceCode, node),
-              messageId: 'forAwaitOfNonAsyncIterable',
-              suggest: [
-                // Note that this suggestion causes broken code for sync iterables
-                // of promises, since the loop variable is not awaited.
-                {
-                  messageId: 'convertToOrdinaryFor',
+              node: init,
+              messageId: 'awaitUsingOfNonAsyncDisposable',
+              // let the user figure out what to do if there's
+              // await using a = b, c = d, e = f;
+              // it's rare and not worth the complexity to handle.
+              ...getFixOrSuggest({
+                fixOrSuggest:
+                  node.declarations.length === 1 ? 'suggest' : 'none',
+
+                suggestion: {
+                  messageId: 'removeAwait',
                   fix(fixer): TSESLint.RuleFix {
                     const awaitToken = nullThrows(
                       context.sourceCode.getFirstToken(node, isAwaitKeyword),
-                      NullThrowsReasons.MissingToken('await', 'for await loop'),
+                      NullThrowsReasons.MissingToken('await', 'await using'),
                     );
 
                     return fixer.removeRange(
@@ -244,69 +254,12 @@ export default createRule<Options, MessageId>({
                     );
                   },
                 },
-              ],
+              }),
             });
           }
-        },
-
-        'VariableDeclaration[kind="await using"]'(
-          node: TSESTree.VariableDeclaration,
-        ): void {
-          for (const declarator of node.declarations) {
-            const init = declarator.init;
-            if (init == null) {
-              continue;
-            }
-            const type = services.getTypeAtLocation(init);
-            if (isTypeAnyType(type)) {
-              continue;
-            }
-
-            const hasAsyncDisposeSymbol = tsutils
-              .unionConstituents(type)
-              .some(
-                typePart =>
-                  tsutils.getWellKnownSymbolPropertyOfType(
-                    typePart,
-                    'asyncDispose',
-                    checker,
-                  ) != null,
-              );
-
-            if (!hasAsyncDisposeSymbol) {
-              context.report({
-                node: init,
-                messageId: 'awaitUsingOfNonAsyncDisposable',
-                // let the user figure out what to do if there's
-                // await using a = b, c = d, e = f;
-                // it's rare and not worth the complexity to handle.
-                ...getFixOrSuggest({
-                  fixOrSuggest:
-                    node.declarations.length === 1 ? 'suggest' : 'none',
-
-                  suggestion: {
-                    messageId: 'removeAwait',
-                    fix(fixer): TSESLint.RuleFix {
-                      const awaitToken = nullThrows(
-                        context.sourceCode.getFirstToken(node, isAwaitKeyword),
-                        NullThrowsReasons.MissingToken('await', 'await using'),
-                      );
-
-                      return fixer.removeRange(
-                        getAwaitTokenRemovalRange(
-                          context.sourceCode,
-                          awaitToken,
-                        ),
-                      );
-                    },
-                  },
-                }),
-              });
-            }
-          }
-        },
-      };
-    },
+        }
+      },
+    };
   },
 });
 
@@ -409,4 +362,57 @@ function isIterable(type: ts.Type, checker: ts.TypeChecker): boolean {
       part =>
         !!tsutils.getWellKnownSymbolPropertyOfType(part, 'iterator', checker),
     );
+}
+
+/** Reports an `await` of a value that is never thenable, suggesting to remove the `await`. */
+export function reportNonThenableAwait(
+  context: Readonly<TSESLint.RuleContext<MessageId, Options>>,
+  node: TSESTree.AwaitExpression,
+): void {
+  const awaitArgumentEsNode = node.argument;
+  context.report({
+    node,
+    messageId: 'await',
+    suggest: [
+      {
+        messageId: 'removeAwait',
+        fix(fixer) {
+          const awaitKeyword = nullThrows(
+            context.sourceCode.getFirstToken(node, isAwaitKeyword),
+            NullThrowsReasons.MissingToken('await', 'await expression'),
+          );
+
+          const awaitTokenRemovalRange = getAwaitTokenRemovalRange(
+            context.sourceCode,
+            awaitKeyword,
+          );
+          const awaitRemovalFix = fixer.removeRange(awaitTokenRemovalRange);
+
+          const firstOperandToken = nullThrows(
+            context.sourceCode.getTokenAfter(awaitKeyword),
+            NullThrowsReasons.MissingToken('operand', 'await expression'),
+          );
+          if (
+            isStartOfArrowFunctionBodyNeedingParentheses(
+              node,
+              firstOperandToken,
+              context.sourceCode,
+            ) ||
+            isStartOfExpressionStatementNeedingParentheses(
+              node,
+              firstOperandToken,
+            )
+          ) {
+            return [
+              awaitRemovalFix,
+              fixer.insertTextBefore(awaitArgumentEsNode, '('),
+              fixer.insertTextAfter(awaitArgumentEsNode, ')'),
+            ];
+          }
+
+          return awaitRemovalFix;
+        },
+      },
+    ],
+  });
 }

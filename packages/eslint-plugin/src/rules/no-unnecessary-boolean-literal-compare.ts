@@ -96,247 +96,244 @@ export default createRule<Options, MessageIds>({
       allowRuleToRunWithoutStrictNullChecksIKnowWhatIAmDoing: false,
     },
   ],
-  create: {
-    default(context, [options]) {
-      const services = getParserServices(context);
-      const checker = services.program.getTypeChecker();
-      const compilerOptions = services.program.getCompilerOptions();
+  create(context, [options]) {
+    const services = getParserServices(context);
+    const checker = services.program.getTypeChecker();
+    const compilerOptions = services.program.getCompilerOptions();
 
-      const isStrictNullChecks = tsutils.isStrictCompilerOptionEnabled(
-        compilerOptions,
-        'strictNullChecks',
+    const isStrictNullChecks = tsutils.isStrictCompilerOptionEnabled(
+      compilerOptions,
+      'strictNullChecks',
+    );
+
+    if (
+      !isStrictNullChecks &&
+      options.allowRuleToRunWithoutStrictNullChecksIKnowWhatIAmDoing !== true
+    ) {
+      context.report({
+        loc: {
+          start: { column: 0, line: 0 },
+          end: { column: 0, line: 0 },
+        },
+        messageId: 'noStrictNullCheck',
+      });
+    }
+
+    function getBooleanComparison(
+      node: TSESTree.BinaryExpression,
+    ): BooleanComparisonWithTypeInformation | undefined {
+      const comparison = deconstructComparison(node);
+      if (!comparison) {
+        return undefined;
+      }
+
+      const { constraintType, isTypeParameter } = getConstraintInfo(
+        checker,
+        services.getTypeAtLocation(comparison.expression),
       );
 
-      if (
-        !isStrictNullChecks &&
-        options.allowRuleToRunWithoutStrictNullChecksIKnowWhatIAmDoing !== true
-      ) {
-        context.report({
-          loc: {
-            start: { column: 0, line: 0 },
-            end: { column: 0, line: 0 },
-          },
-          messageId: 'noStrictNullCheck',
-        });
-      }
-
-      function getBooleanComparison(
-        node: TSESTree.BinaryExpression,
-      ): BooleanComparisonWithTypeInformation | undefined {
-        const comparison = deconstructComparison(node);
-        if (!comparison) {
-          return undefined;
-        }
-
-        const { constraintType, isTypeParameter } = getConstraintInfo(
-          checker,
-          services.getTypeAtLocation(comparison.expression),
-        );
-
-        if (isTypeParameter && constraintType == null) {
-          return undefined;
-        }
-
-        if (isBooleanType(constraintType)) {
-          return {
-            ...comparison,
-            expressionIsNullableBoolean: false,
-          };
-        }
-
-        if (isNullableBoolean(constraintType)) {
-          return {
-            ...comparison,
-            expressionIsNullableBoolean: true,
-          };
-        }
-
+      if (isTypeParameter && constraintType == null) {
         return undefined;
       }
 
-      function isBooleanType(expressionType: ts.Type): boolean {
-        return tsutils.isTypeFlagSet(
-          expressionType,
-          ts.TypeFlags.Boolean | ts.TypeFlags.BooleanLiteral,
-        );
+      if (isBooleanType(constraintType)) {
+        return {
+          ...comparison,
+          expressionIsNullableBoolean: false,
+        };
       }
 
-      /**
-       * checks if the expressionType is a union that
-       *   1) contains at least one nullish type (null or undefined)
-       *   2) contains at least once boolean type (true or false or boolean)
-       *   3) does not contain any types besides nullish and boolean types
-       */
-      function isNullableBoolean(expressionType: ts.Type): boolean {
-        if (!expressionType.isUnion()) {
-          return false;
-        }
-
-        const { types } = expressionType;
-
-        const nonNullishTypes = types.filter(
-          type =>
-            !tsutils.isTypeFlagSet(
-              type,
-              ts.TypeFlags.Undefined | ts.TypeFlags.Null,
-            ),
-        );
-
-        const hasNonNullishType = nonNullishTypes.length > 0;
-        if (!hasNonNullishType) {
-          return false;
-        }
-
-        const hasNullableType = nonNullishTypes.length < types.length;
-        if (!hasNullableType) {
-          return false;
-        }
-
-        const allNonNullishTypesAreBoolean =
-          nonNullishTypes.every(isBooleanType);
-        if (!allNonNullishTypesAreBoolean) {
-          return false;
-        }
-
-        return true;
+      if (isNullableBoolean(constraintType)) {
+        return {
+          ...comparison,
+          expressionIsNullableBoolean: true,
+        };
       }
 
-      function deconstructComparison(
-        node: TSESTree.BinaryExpression,
-      ): BooleanComparison | undefined {
-        const comparisonType = getEqualsKind(node.operator);
-        if (!comparisonType) {
-          return undefined;
+      return undefined;
+    }
+
+    function isBooleanType(expressionType: ts.Type): boolean {
+      return tsutils.isTypeFlagSet(
+        expressionType,
+        ts.TypeFlags.Boolean | ts.TypeFlags.BooleanLiteral,
+      );
+    }
+
+    /**
+     * checks if the expressionType is a union that
+     *   1) contains at least one nullish type (null or undefined)
+     *   2) contains at least once boolean type (true or false or boolean)
+     *   3) does not contain any types besides nullish and boolean types
+     */
+    function isNullableBoolean(expressionType: ts.Type): boolean {
+      if (!expressionType.isUnion()) {
+        return false;
+      }
+
+      const { types } = expressionType;
+
+      const nonNullishTypes = types.filter(
+        type =>
+          !tsutils.isTypeFlagSet(
+            type,
+            ts.TypeFlags.Undefined | ts.TypeFlags.Null,
+          ),
+      );
+
+      const hasNonNullishType = nonNullishTypes.length > 0;
+      if (!hasNonNullishType) {
+        return false;
+      }
+
+      const hasNullableType = nonNullishTypes.length < types.length;
+      if (!hasNullableType) {
+        return false;
+      }
+
+      const allNonNullishTypesAreBoolean = nonNullishTypes.every(isBooleanType);
+      if (!allNonNullishTypesAreBoolean) {
+        return false;
+      }
+
+      return true;
+    }
+
+    function deconstructComparison(
+      node: TSESTree.BinaryExpression,
+    ): BooleanComparison | undefined {
+      const comparisonType = getEqualsKind(node.operator);
+      if (!comparisonType) {
+        return undefined;
+      }
+
+      for (const [against, expression] of [
+        [node.right, node.left],
+        [node.left, node.right],
+      ]) {
+        if (
+          against.type !== AST_NODE_TYPES.Literal ||
+          typeof against.value !== 'boolean'
+        ) {
+          continue;
         }
 
-        for (const [against, expression] of [
-          [node.right, node.left],
-          [node.left, node.right],
-        ]) {
+        const booleanLiteral = against.value ? 'true' : 'false';
+        const negated = !comparisonType.isPositive;
+
+        return {
+          booleanLiteral,
+          expression,
+          negated,
+        };
+      }
+
+      return undefined;
+    }
+
+    function nodeIsUnaryNegation(node: TSESTree.Node): boolean {
+      return (
+        node.type === AST_NODE_TYPES.UnaryExpression && node.operator === '!'
+      );
+    }
+
+    return {
+      BinaryExpression(node): void {
+        const comparison = getBooleanComparison(node);
+        if (comparison == null) {
+          return;
+        }
+
+        if (comparison.expressionIsNullableBoolean) {
           if (
-            against.type !== AST_NODE_TYPES.Literal ||
-            typeof against.value !== 'boolean'
+            comparison.booleanLiteral === 'true' &&
+            options.allowComparingNullableBooleansToTrue
           ) {
-            continue;
-          }
-
-          const booleanLiteral = against.value ? 'true' : 'false';
-          const negated = !comparisonType.isPositive;
-
-          return {
-            booleanLiteral,
-            expression,
-            negated,
-          };
-        }
-
-        return undefined;
-      }
-
-      function nodeIsUnaryNegation(node: TSESTree.Node): boolean {
-        return (
-          node.type === AST_NODE_TYPES.UnaryExpression && node.operator === '!'
-        );
-      }
-
-      return {
-        BinaryExpression(node): void {
-          const comparison = getBooleanComparison(node);
-          if (comparison == null) {
             return;
           }
-
-          if (comparison.expressionIsNullableBoolean) {
-            if (
-              comparison.booleanLiteral === 'true' &&
-              options.allowComparingNullableBooleansToTrue
-            ) {
-              return;
-            }
-            if (
-              comparison.booleanLiteral === 'false' &&
-              options.allowComparingNullableBooleansToFalse
-            ) {
-              return;
-            }
+          if (
+            comparison.booleanLiteral === 'false' &&
+            options.allowComparingNullableBooleansToFalse
+          ) {
+            return;
           }
+        }
 
-          context.report({
-            node,
-            messageId: comparison.expressionIsNullableBoolean
-              ? comparison.booleanLiteral === 'true'
-                ? comparison.negated
-                  ? 'comparingNullableToTrueNegated'
-                  : 'comparingNullableToTrueDirect'
-                : 'comparingNullableToFalse'
-              : comparison.negated
-                ? 'negated'
-                : 'direct',
-            fix(fixer) {
-              const isWrappedInUnaryNegation = nodeIsUnaryNegation(node.parent);
-              const mutatedNode = isWrappedInUnaryNegation ? node.parent : node;
+        context.report({
+          node,
+          messageId: comparison.expressionIsNullableBoolean
+            ? comparison.booleanLiteral === 'true'
+              ? comparison.negated
+                ? 'comparingNullableToTrueNegated'
+                : 'comparingNullableToTrueDirect'
+              : 'comparingNullableToFalse'
+            : comparison.negated
+              ? 'negated'
+              : 'direct',
+          fix(fixer) {
+            const isWrappedInUnaryNegation = nodeIsUnaryNegation(node.parent);
+            const mutatedNode = isWrappedInUnaryNegation ? node.parent : node;
 
-              // Whether the truth table of the overall expression being replaced
-              // is negated, _ignoring the nullish cases_.
-              const isOverallNegated = booleanXor(
-                isWrappedInUnaryNegation,
-                comparison.negated,
-                comparison.booleanLiteral === 'false',
-              );
+            // Whether the truth table of the overall expression being replaced
+            // is negated, _ignoring the nullish cases_.
+            const isOverallNegated = booleanXor(
+              isWrappedInUnaryNegation,
+              comparison.negated,
+              comparison.booleanLiteral === 'false',
+            );
 
-              // we'll build up the replacement text from the compared expression outwards.
-              let replacementText = context.sourceCode.getText(
-                comparison.expression,
-              );
-              let mayNeedParentheses = !isStrongPrecedenceNode(
-                comparison.expression,
-              );
+            // we'll build up the replacement text from the compared expression outwards.
+            let replacementText = context.sourceCode.getText(
+              comparison.expression,
+            );
+            let mayNeedParentheses = !isStrongPrecedenceNode(
+              comparison.expression,
+            );
 
-              const fixWouldReturnExpressionDirectly =
-                !isOverallNegated && comparison.expressionIsNullableBoolean;
+            const fixWouldReturnExpressionDirectly =
+              !isOverallNegated && comparison.expressionIsNullableBoolean;
 
+            if (
+              fixWouldReturnExpressionDirectly &&
+              !isConditionalTest(mutatedNode)
+            ) {
+              if (mayNeedParentheses) {
+                replacementText = parenthesize(replacementText);
+              }
+              replacementText = `${replacementText} ?? false`;
+              mayNeedParentheses = true;
+            } else {
+              // In maybeNullish === false, nullish values have the same truth table
+              // as `true`.
               if (
-                fixWouldReturnExpressionDirectly &&
-                !isConditionalTest(mutatedNode)
+                comparison.expressionIsNullableBoolean &&
+                comparison.booleanLiteral === 'false'
               ) {
                 if (mayNeedParentheses) {
                   replacementText = parenthesize(replacementText);
                 }
-                replacementText = `${replacementText} ?? false`;
+                replacementText = `${replacementText} ?? true`;
                 mayNeedParentheses = true;
-              } else {
-                // In maybeNullish === false, nullish values have the same truth table
-                // as `true`.
-                if (
-                  comparison.expressionIsNullableBoolean &&
-                  comparison.booleanLiteral === 'false'
-                ) {
-                  if (mayNeedParentheses) {
-                    replacementText = parenthesize(replacementText);
-                  }
-                  replacementText = `${replacementText} ?? true`;
-                  mayNeedParentheses = true;
-                }
-
-                if (isOverallNegated) {
-                  if (mayNeedParentheses) {
-                    replacementText = parenthesize(replacementText);
-                  }
-                  replacementText = `!${replacementText}`;
-                  mayNeedParentheses = false;
-                }
               }
 
-              if (mayNeedParentheses && isWeakPrecedenceParent(mutatedNode)) {
-                replacementText = parenthesize(replacementText);
+              if (isOverallNegated) {
+                if (mayNeedParentheses) {
+                  replacementText = parenthesize(replacementText);
+                }
+                replacementText = `!${replacementText}`;
+                mayNeedParentheses = false;
               }
+            }
 
-              return fixer.replaceText(mutatedNode, replacementText);
-            },
-          });
-        },
-      };
-    },
+            if (mayNeedParentheses && isWeakPrecedenceParent(mutatedNode)) {
+              replacementText = parenthesize(replacementText);
+            }
+
+            return fixer.replaceText(mutatedNode, replacementText);
+          },
+        });
+      },
+    };
   },
 });
 

@@ -78,133 +78,129 @@ export default createRule<Options, MessageIds>({
       allowOptionalChaining: false,
     },
   ],
-  create: {
-    default(context, [{ allowOptionalChaining }]) {
-      const services = getParserServices(context);
-      const compilerOptions = services.program.getCompilerOptions();
-      const isNoImplicitThis = tsutils.isStrictCompilerOptionEnabled(
-        compilerOptions,
-        'noImplicitThis',
-      );
+  create(context, [{ allowOptionalChaining }]) {
+    const services = getParserServices(context);
+    const compilerOptions = services.program.getCompilerOptions();
+    const isNoImplicitThis = tsutils.isStrictCompilerOptionEnabled(
+      compilerOptions,
+      'noImplicitThis',
+    );
 
-      const stateCache = new Map<TSESTree.Node, State>();
+    const stateCache = new Map<TSESTree.Node, State>();
 
-      // Case notes:
-      // value?.outer.middle.inner
-      // The ChainExpression is a child of the root expression, and a parent of all the MemberExpressions.
-      // But the left-most expression is what we want to report on: the inner-most expressions.
-      // In fact, this is true even if the chain is on the inside!
-      // value.outer.middle?.inner;
-      // It was already true that every `object` (MemberExpression) has optional: boolean
+    // Case notes:
+    // value?.outer.middle.inner
+    // The ChainExpression is a child of the root expression, and a parent of all the MemberExpressions.
+    // But the left-most expression is what we want to report on: the inner-most expressions.
+    // In fact, this is true even if the chain is on the inside!
+    // value.outer.middle?.inner;
+    // It was already true that every `object` (MemberExpression) has optional: boolean
 
-      function checkMemberExpression(node: TSESTree.MemberExpression): State {
-        if (allowOptionalChaining && node.optional) {
-          stateCache.set(node, State.Chained);
-          return State.Chained;
+    function checkMemberExpression(node: TSESTree.MemberExpression): State {
+      if (allowOptionalChaining && node.optional) {
+        stateCache.set(node, State.Chained);
+        return State.Chained;
+      }
+
+      const cachedState = stateCache.get(node);
+      if (cachedState) {
+        return cachedState;
+      }
+
+      if (node.object.type === AST_NODE_TYPES.MemberExpression) {
+        const objectState = checkMemberExpression(node.object);
+        if (objectState === State.Unsafe) {
+          // if the object is unsafe, we know this will be unsafe as well
+          // we don't need to report, as we have already reported on the inner member expr
+          stateCache.set(node, objectState);
+          return objectState;
         }
+      }
 
-        const cachedState = stateCache.get(node);
-        if (cachedState) {
-          return cachedState;
-        }
+      const type = services.getTypeAtLocation(node.object);
+      const state = isTypeAnyType(type) ? State.Unsafe : State.Safe;
+      stateCache.set(node, state);
 
-        if (node.object.type === AST_NODE_TYPES.MemberExpression) {
-          const objectState = checkMemberExpression(node.object);
-          if (objectState === State.Unsafe) {
-            // if the object is unsafe, we know this will be unsafe as well
-            // we don't need to report, as we have already reported on the inner member expr
-            stateCache.set(node, objectState);
-            return objectState;
-          }
-        }
+      if (state === State.Unsafe) {
+        const propertyName = context.sourceCode.getText(node.property);
 
-        const type = services.getTypeAtLocation(node.object);
-        const state = isTypeAnyType(type) ? State.Unsafe : State.Safe;
-        stateCache.set(node, state);
+        let messageId: MessageIds | undefined;
 
-        if (state === State.Unsafe) {
-          const propertyName = context.sourceCode.getText(node.property);
-
-          let messageId: MessageIds | undefined;
-
-          if (!isNoImplicitThis) {
-            // `this.foo` or `this.foo[bar]`
-            const thisExpression = getThisExpression(node);
-            if (thisExpression) {
-              const thisType = getConstrainedTypeAtLocation(
-                services,
-                thisExpression,
-              );
-              if (isTypeAnyType(thisType)) {
-                messageId = tsutils.isIntrinsicErrorType(thisType)
-                  ? 'errorThisMemberExpression'
-                  : 'unsafeThisMemberExpression';
-              }
+        if (!isNoImplicitThis) {
+          // `this.foo` or `this.foo[bar]`
+          const thisExpression = getThisExpression(node);
+          if (thisExpression) {
+            const thisType = getConstrainedTypeAtLocation(
+              services,
+              thisExpression,
+            );
+            if (isTypeAnyType(thisType)) {
+              messageId = tsutils.isIntrinsicErrorType(thisType)
+                ? 'errorThisMemberExpression'
+                : 'unsafeThisMemberExpression';
             }
           }
+        }
 
-          if (!messageId) {
-            messageId = tsutils.isIntrinsicErrorType(type)
-              ? 'errorMemberExpression'
-              : 'unsafeMemberExpression';
-          }
+        if (!messageId) {
+          messageId = tsutils.isIntrinsicErrorType(type)
+            ? 'errorMemberExpression'
+            : 'unsafeMemberExpression';
+        }
 
+        context.report({
+          node: node.property,
+          messageId,
+          data: {
+            property: node.computed ? `[${propertyName}]` : `.${propertyName}`,
+          },
+        });
+      }
+
+      return state;
+    }
+
+    return {
+      // ignore MemberExpressions with ancestors of type `TSClassImplements` or `TSInterfaceHeritage`
+      'MemberExpression:not(TSClassImplements MemberExpression, TSInterfaceHeritage MemberExpression)':
+        checkMemberExpression,
+      'MemberExpression[computed = true] > *.property'(
+        node: TSESTree.Expression,
+      ): void {
+        if (
+          allowOptionalChaining &&
+          (node.parent as TSESTree.MemberExpression).optional
+        ) {
+          return;
+        }
+
+        if (
+          // x[1]
+          node.type === AST_NODE_TYPES.Literal ||
+          // x[1++] x[++x] etc
+          // FUN FACT - **all** update expressions return type number, regardless of the argument's type,
+          // because JS engines return NaN if there the argument is not a number.
+          node.type === AST_NODE_TYPES.UpdateExpression
+        ) {
+          // perf optimizations - literals can obviously never be `any`
+          return;
+        }
+
+        const type = services.getTypeAtLocation(node);
+
+        if (isTypeAnyType(type)) {
+          const propertyName = context.sourceCode.getText(node);
           context.report({
-            node: node.property,
-            messageId,
+            node,
+            messageId: tsutils.isIntrinsicErrorType(type)
+              ? 'errorComputedMemberAccess'
+              : 'unsafeComputedMemberAccess',
             data: {
-              property: node.computed
-                ? `[${propertyName}]`
-                : `.${propertyName}`,
+              property: `[${propertyName}]`,
             },
           });
         }
-
-        return state;
-      }
-
-      return {
-        // ignore MemberExpressions with ancestors of type `TSClassImplements` or `TSInterfaceHeritage`
-        'MemberExpression:not(TSClassImplements MemberExpression, TSInterfaceHeritage MemberExpression)':
-          checkMemberExpression,
-        'MemberExpression[computed = true] > *.property'(
-          node: TSESTree.Expression,
-        ): void {
-          if (
-            allowOptionalChaining &&
-            (node.parent as TSESTree.MemberExpression).optional
-          ) {
-            return;
-          }
-
-          if (
-            // x[1]
-            node.type === AST_NODE_TYPES.Literal ||
-            // x[1++] x[++x] etc
-            // FUN FACT - **all** update expressions return type number, regardless of the argument's type,
-            // because JS engines return NaN if there the argument is not a number.
-            node.type === AST_NODE_TYPES.UpdateExpression
-          ) {
-            // perf optimizations - literals can obviously never be `any`
-            return;
-          }
-
-          const type = services.getTypeAtLocation(node);
-
-          if (isTypeAnyType(type)) {
-            const propertyName = context.sourceCode.getText(node);
-            context.report({
-              node,
-              messageId: tsutils.isIntrinsicErrorType(type)
-                ? 'errorComputedMemberAccess'
-                : 'unsafeComputedMemberAccess',
-              data: {
-                property: `[${propertyName}]`,
-              },
-            });
-          }
-        },
-      };
-    },
+      },
+    };
   },
 });

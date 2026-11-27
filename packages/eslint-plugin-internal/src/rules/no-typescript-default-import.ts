@@ -32,8 +32,7 @@ export default createRule({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create: {
-    default(context) {
+  create(context) {
     if (context.filename.endsWith('mts')) {
       // mts files will import "properly" and so default import is correct
       return {};
@@ -76,6 +75,5 @@ export default createRule({
         }
       },
     };
-    },
   },
 });

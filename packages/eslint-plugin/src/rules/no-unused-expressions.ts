@@ -37,58 +37,50 @@ export default createRule<Options, MessageIds>({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions,
-  create: {
-    default(context, [{ allowShortCircuit = false, allowTernary = false }]) {
-      const rules = baseRule.create(context);
+  create(context, [{ allowShortCircuit = false, allowTernary = false }]) {
+    const rules = baseRule.create(context);
 
-      function isValidExpression(node: TSESTree.Node): boolean {
-        if (
-          allowShortCircuit &&
-          node.type === AST_NODE_TYPES.LogicalExpression
-        ) {
-          return isValidExpression(node.right);
-        }
-        if (
-          allowTernary &&
-          node.type === AST_NODE_TYPES.ConditionalExpression
-        ) {
-          return (
-            isValidExpression(node.alternate) &&
-            isValidExpression(node.consequent)
-          );
-        }
+    function isValidExpression(node: TSESTree.Node): boolean {
+      if (allowShortCircuit && node.type === AST_NODE_TYPES.LogicalExpression) {
+        return isValidExpression(node.right);
+      }
+      if (allowTernary && node.type === AST_NODE_TYPES.ConditionalExpression) {
         return (
-          (node.type === AST_NODE_TYPES.ChainExpression &&
-            node.expression.type === AST_NODE_TYPES.CallExpression) ||
-          node.type === AST_NODE_TYPES.ImportExpression
+          isValidExpression(node.alternate) &&
+          isValidExpression(node.consequent)
         );
       }
+      return (
+        (node.type === AST_NODE_TYPES.ChainExpression &&
+          node.expression.type === AST_NODE_TYPES.CallExpression) ||
+        node.type === AST_NODE_TYPES.ImportExpression
+      );
+    }
 
-      return {
-        ExpressionStatement(node): void {
-          if (node.directive || isValidExpression(node.expression)) {
-            return;
-          }
+    return {
+      ExpressionStatement(node): void {
+        if (node.directive || isValidExpression(node.expression)) {
+          return;
+        }
 
-          const expressionType = node.expression.type;
+        const expressionType = node.expression.type;
 
-          if (
-            expressionType ===
-              TSESTree.AST_NODE_TYPES.TSInstantiationExpression ||
-            expressionType === TSESTree.AST_NODE_TYPES.TSAsExpression ||
-            expressionType === TSESTree.AST_NODE_TYPES.TSNonNullExpression ||
-            expressionType === TSESTree.AST_NODE_TYPES.TSTypeAssertion
-          ) {
-            rules.ExpressionStatement({
-              ...node,
-              expression: node.expression.expression,
-            });
-            return;
-          }
+        if (
+          expressionType ===
+            TSESTree.AST_NODE_TYPES.TSInstantiationExpression ||
+          expressionType === TSESTree.AST_NODE_TYPES.TSAsExpression ||
+          expressionType === TSESTree.AST_NODE_TYPES.TSNonNullExpression ||
+          expressionType === TSESTree.AST_NODE_TYPES.TSTypeAssertion
+        ) {
+          rules.ExpressionStatement({
+            ...node,
+            expression: node.expression.expression,
+          });
+          return;
+        }
 
-          rules.ExpressionStatement(node);
-        },
-      };
-    },
+        rules.ExpressionStatement(node);
+      },
+    };
   },
 });

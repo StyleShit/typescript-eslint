@@ -99,7 +99,7 @@ export function getParserServices(
 /**
  * Retrieve type-aware parser services backed by tsgo, including direct access
  * to tsgo's own API. This **_will_** throw if the file wasn't parsed by the tsgo
- * backend, so only call it from a rule's `create.tsgo` implementation.
+ * backend, so only call it from a rule's `backends.tsgo` implementation.
  */
 export function getNativeParserServices<
   MessageIds extends string,
@@ -110,7 +110,7 @@ export function getNativeParserServices<
   const services = getParserServices(context);
   if (services.backend !== 'tsgo') {
     throw new Error(
-      `Expected parser services from the tsgo backend, but this file was parsed by the ${String(services.backend)} backend.`,
+      `Expected parser services from the tsgo backend, but this file was parsed by the ${services.backend} backend.`,
     );
   }
   return services as ParserServicesWithNativeTypeInformation;

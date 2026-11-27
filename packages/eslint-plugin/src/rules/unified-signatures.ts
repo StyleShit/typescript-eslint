@@ -112,8 +112,7 @@ export default createRule<Options, MessageIds>({
       ignoreOverloadsWithDifferentJSDoc: false,
     },
   ],
-  create: {
-    default(
+  create(
     context,
     [{ ignoreDifferentlyNamedParameters, ignoreOverloadsWithDifferentJSDoc }],
   ) {
@@ -708,7 +707,6 @@ export default createRule<Options, MessageIds>({
       'TSModuleBlock:exit': checkScope,
       'TSTypeLiteral:exit': checkScope,
     };
-    },
   },
 });
 

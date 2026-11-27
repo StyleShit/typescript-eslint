@@ -90,8 +90,7 @@ export default createRule<Options, MessageIds>({
       checkMethodDeclarations: true,
     },
   ],
-  create: {
-    default(
+  create(
     context,
     [
       {
@@ -277,6 +276,5 @@ export default createRule<Options, MessageIds>({
         }
       },
     };
-    },
   },
 });

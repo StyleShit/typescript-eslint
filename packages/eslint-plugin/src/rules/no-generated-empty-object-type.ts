@@ -24,59 +24,57 @@ export default createRule({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create: {
-    default(context) {
-      const services = getParserServices(context);
-      const checker = services.program.getTypeChecker();
+  create(context) {
+    const services = getParserServices(context);
+    const checker = services.program.getTypeChecker();
 
-      function isEmptyObjectType(type: ts.Type) {
-        return (
-          tsutils.isObjectType(type) &&
-          !tsutils.isObjectFlagSet(
-            type,
-            ts.ObjectFlags.Class | ts.ObjectFlags.Interface,
-          ) &&
-          checker.getPropertiesOfType(type).length === 0 &&
-          checker.getIndexInfosOfType(type).length === 0 &&
-          type.getCallSignatures().length === 0 &&
-          type.getConstructSignatures().length === 0 &&
-          // Types still awaiting type arguments, such as `Record<T, unknown>`
-          // inside a generic declaration, also have no members yet. Every
-          // primitive is assignable to `{}`, so probing with more than one of
-          // them rules those out: a mapped type whose keys are not resolved yet,
-          // such as `{ [K in Keys<T>]: K }`, accepts `number` but not `string`.
-          checker.isTypeAssignableTo(checker.getNumberType(), type) &&
-          checker.isTypeAssignableTo(checker.getStringType(), type)
-        );
+    function isEmptyObjectType(type: ts.Type) {
+      return (
+        tsutils.isObjectType(type) &&
+        !tsutils.isObjectFlagSet(
+          type,
+          ts.ObjectFlags.Class | ts.ObjectFlags.Interface,
+        ) &&
+        checker.getPropertiesOfType(type).length === 0 &&
+        checker.getIndexInfosOfType(type).length === 0 &&
+        type.getCallSignatures().length === 0 &&
+        type.getConstructSignatures().length === 0 &&
+        // Types still awaiting type arguments, such as `Record<T, unknown>`
+        // inside a generic declaration, also have no members yet. Every
+        // primitive is assignable to `{}`, so probing with more than one of
+        // them rules those out: a mapped type whose keys are not resolved yet,
+        // such as `{ [K in Keys<T>]: K }`, accepts `number` but not `string`.
+        checker.isTypeAssignableTo(checker.getNumberType(), type) &&
+        checker.isTypeAssignableTo(checker.getStringType(), type)
+      );
+    }
+
+    function containsEmptyObjectType(type: ts.Type) {
+      return (
+        isEmptyObjectType(type) ||
+        (type.isUnion() && type.types.some(isEmptyObjectType))
+      );
+    }
+
+    function checkNode(node: TSESTree.Node) {
+      if (containsEmptyObjectType(services.getTypeAtLocation(node))) {
+        context.report({
+          node,
+          messageId: 'noGeneratedEmptyObjectType',
+        });
       }
+    }
 
-      function containsEmptyObjectType(type: ts.Type) {
-        return (
-          isEmptyObjectType(type) ||
-          (type.isUnion() && type.types.some(isEmptyObjectType))
-        );
-      }
-
-      function checkNode(node: TSESTree.Node) {
-        if (containsEmptyObjectType(services.getTypeAtLocation(node))) {
-          context.report({
-            node,
-            messageId: 'noGeneratedEmptyObjectType',
-          });
+    return {
+      TSIntersectionType: checkNode,
+      TSTypeReference(node) {
+        if (
+          node.typeArguments &&
+          node.parent.type !== AST_NODE_TYPES.TSIntersectionType
+        ) {
+          checkNode(node);
         }
-      }
-
-      return {
-        TSIntersectionType: checkNode,
-        TSTypeReference(node) {
-          if (
-            node.typeArguments &&
-            node.parent.type !== AST_NODE_TYPES.TSIntersectionType
-          ) {
-            checkNode(node);
-          }
-        },
-      };
-    },
+      },
+    };
   },
 });

@@ -115,8 +115,8 @@ describe(createParseSettings, () => {
       [
         {
           projectService: {
-            defaultProject: 'tsconfig.eslint.json',
             backend: 'tsgo' as const,
+            defaultProject: 'tsconfig.eslint.json',
           },
         },
         'defaultProject',
@@ -247,9 +247,7 @@ describe(createParseSettings, () => {
               filePath: '/project/file.ts',
               projectService: { backend: 'tsgo' },
             }),
-          ).toThrow(
-            'The tsgo backend requires classic TypeScript 6',
-          );
+          ).toThrow('The tsgo backend requires classic TypeScript 6');
         });
 
         it('falls back to the classic backend for the environment variable', () => {
@@ -301,9 +299,7 @@ describe(createParseSettings, () => {
             filePath: '/project/file.ts',
             projectService: { backend: 'tsgo' },
           }),
-        ).toThrow(
-          'The tsgo backend requires classic TypeScript 6.0',
-        );
+        ).toThrow('The tsgo backend requires classic TypeScript 6.0');
       },
     );
 

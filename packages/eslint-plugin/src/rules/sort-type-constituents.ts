@@ -215,8 +215,7 @@ export default createRule<Options, MessageIds>({
       ],
     },
   ],
-  create: {
-    default(
+  create(
     context,
     [{ caseSensitive, checkIntersections, checkUnions, groupOrder }],
   ) {
@@ -321,6 +320,5 @@ export default createRule<Options, MessageIds>({
         },
       }),
     };
-    },
   },
 });

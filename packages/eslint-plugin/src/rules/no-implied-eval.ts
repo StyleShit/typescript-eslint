@@ -39,129 +39,127 @@ export default createRule({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create: {
-    default(context) {
-      const services = getParserServices(context);
-      const checker = services.program.getTypeChecker();
+  create(context) {
+    const services = getParserServices(context);
+    const checker = services.program.getTypeChecker();
 
-      function getCalleeName(node: TSESTree.Expression): string | null {
-        if (node.type === AST_NODE_TYPES.Identifier) {
-          return node.name;
+    function getCalleeName(node: TSESTree.Expression): string | null {
+      if (node.type === AST_NODE_TYPES.Identifier) {
+        return node.name;
+      }
+
+      if (
+        node.type === AST_NODE_TYPES.MemberExpression &&
+        node.object.type === AST_NODE_TYPES.Identifier &&
+        GLOBAL_CANDIDATES.has(node.object.name)
+      ) {
+        if (node.property.type === AST_NODE_TYPES.Identifier) {
+          return node.property.name;
         }
 
         if (
-          node.type === AST_NODE_TYPES.MemberExpression &&
-          node.object.type === AST_NODE_TYPES.Identifier &&
-          GLOBAL_CANDIDATES.has(node.object.name)
+          node.property.type === AST_NODE_TYPES.Literal &&
+          typeof node.property.value === 'string'
         ) {
-          if (node.property.type === AST_NODE_TYPES.Identifier) {
-            return node.property.name;
-          }
-
-          if (
-            node.property.type === AST_NODE_TYPES.Literal &&
-            typeof node.property.value === 'string'
-          ) {
-            return node.property.value;
-          }
+          return node.property.value;
         }
-
-        return null;
       }
 
-      function isFunctionType(node: TSESTree.Node): boolean {
-        const type = services.getTypeAtLocation(node);
+      return null;
+    }
+
+    function isFunctionType(node: TSESTree.Node): boolean {
+      const type = services.getTypeAtLocation(node);
+      const symbol = type.getSymbol();
+
+      if (
+        symbol &&
+        tsutils.isSymbolFlagSet(
+          symbol,
+          ts.SymbolFlags.Function | ts.SymbolFlags.Method,
+        )
+      ) {
+        return true;
+      }
+
+      if (isBuiltinSymbolLike(services.program, type, FUNCTION_CONSTRUCTOR)) {
+        return true;
+      }
+
+      const signatures = checker.getSignaturesOfType(
+        type,
+        ts.SignatureKind.Call,
+      );
+
+      return signatures.length > 0;
+    }
+
+    function isBind(node: TSESTree.Node): boolean {
+      return node.type === AST_NODE_TYPES.MemberExpression
+        ? isBind(node.property)
+        : node.type === AST_NODE_TYPES.Identifier && node.name === 'bind';
+    }
+
+    function isFunction(node: TSESTree.Node): boolean {
+      switch (node.type) {
+        case AST_NODE_TYPES.ArrowFunctionExpression:
+        case AST_NODE_TYPES.FunctionDeclaration:
+        case AST_NODE_TYPES.FunctionExpression:
+          return true;
+
+        case AST_NODE_TYPES.Literal:
+        case AST_NODE_TYPES.TemplateLiteral:
+          return false;
+
+        case AST_NODE_TYPES.CallExpression:
+          return isBind(node.callee) || isFunctionType(node);
+
+        default:
+          return isFunctionType(node);
+      }
+    }
+
+    function checkImpliedEval(
+      node: TSESTree.CallExpression | TSESTree.NewExpression,
+    ): void {
+      const calleeName = getCalleeName(node.callee);
+      if (calleeName == null) {
+        return;
+      }
+
+      if (calleeName === FUNCTION_CONSTRUCTOR) {
+        const type = services.getTypeAtLocation(node.callee);
         const symbol = type.getSymbol();
-
-        if (
-          symbol &&
-          tsutils.isSymbolFlagSet(
-            symbol,
-            ts.SymbolFlags.Function | ts.SymbolFlags.Method,
-          )
-        ) {
-          return true;
-        }
-
-        if (isBuiltinSymbolLike(services.program, type, FUNCTION_CONSTRUCTOR)) {
-          return true;
-        }
-
-        const signatures = checker.getSignaturesOfType(
-          type,
-          ts.SignatureKind.Call,
-        );
-
-        return signatures.length > 0;
-      }
-
-      function isBind(node: TSESTree.Node): boolean {
-        return node.type === AST_NODE_TYPES.MemberExpression
-          ? isBind(node.property)
-          : node.type === AST_NODE_TYPES.Identifier && node.name === 'bind';
-      }
-
-      function isFunction(node: TSESTree.Node): boolean {
-        switch (node.type) {
-          case AST_NODE_TYPES.ArrowFunctionExpression:
-          case AST_NODE_TYPES.FunctionDeclaration:
-          case AST_NODE_TYPES.FunctionExpression:
-            return true;
-
-          case AST_NODE_TYPES.Literal:
-          case AST_NODE_TYPES.TemplateLiteral:
-            return false;
-
-          case AST_NODE_TYPES.CallExpression:
-            return isBind(node.callee) || isFunctionType(node);
-
-          default:
-            return isFunctionType(node);
-        }
-      }
-
-      function checkImpliedEval(
-        node: TSESTree.CallExpression | TSESTree.NewExpression,
-      ): void {
-        const calleeName = getCalleeName(node.callee);
-        if (calleeName == null) {
-          return;
-        }
-
-        if (calleeName === FUNCTION_CONSTRUCTOR) {
-          const type = services.getTypeAtLocation(node.callee);
-          const symbol = type.getSymbol();
-          if (symbol) {
-            if (
-              isBuiltinSymbolLike(services.program, type, 'FunctionConstructor')
-            ) {
-              context.report({ node, messageId: 'noFunctionConstructor' });
-              return;
-            }
-          } else {
+        if (symbol) {
+          if (
+            isBuiltinSymbolLike(services.program, type, 'FunctionConstructor')
+          ) {
             context.report({ node, messageId: 'noFunctionConstructor' });
             return;
           }
-        }
-
-        if (node.arguments.length === 0) {
+        } else {
+          context.report({ node, messageId: 'noFunctionConstructor' });
           return;
-        }
-
-        const [handler] = node.arguments;
-        if (
-          EVAL_LIKE_FUNCTIONS.has(calleeName) &&
-          !isFunction(handler) &&
-          isReferenceToGlobalFunction(calleeName, node, context.sourceCode)
-        ) {
-          context.report({ node: handler, messageId: 'noImpliedEvalError' });
         }
       }
 
-      return {
-        CallExpression: checkImpliedEval,
-        NewExpression: checkImpliedEval,
-      };
-    },
+      if (node.arguments.length === 0) {
+        return;
+      }
+
+      const [handler] = node.arguments;
+      if (
+        EVAL_LIKE_FUNCTIONS.has(calleeName) &&
+        !isFunction(handler) &&
+        isReferenceToGlobalFunction(calleeName, node, context.sourceCode)
+      ) {
+        context.report({ node: handler, messageId: 'noImpliedEvalError' });
+      }
+    }
+
+    return {
+      CallExpression: checkImpliedEval,
+      NewExpression: checkImpliedEval,
+    };
   },
 });

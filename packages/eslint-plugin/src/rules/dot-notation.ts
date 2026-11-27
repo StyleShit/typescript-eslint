@@ -76,70 +76,68 @@ export default createRule<Options, MessageIds>({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions,
-  create: {
-    default(context, [options]) {
-      const rules = baseRule.create(context);
-      const services = getParserServices(context);
-      const checker = services.program.getTypeChecker();
-      const allowPrivateClassPropertyAccess =
-        options.allowPrivateClassPropertyAccess;
-      const allowProtectedClassPropertyAccess =
-        options.allowProtectedClassPropertyAccess;
-      const allowIndexSignaturePropertyAccess =
-        (options.allowIndexSignaturePropertyAccess ?? false) ||
-        tsutils.isCompilerOptionEnabled(
-          services.program.getCompilerOptions(),
-          'noPropertyAccessFromIndexSignature',
-        );
+  create(context, [options]) {
+    const rules = baseRule.create(context);
+    const services = getParserServices(context);
+    const checker = services.program.getTypeChecker();
+    const allowPrivateClassPropertyAccess =
+      options.allowPrivateClassPropertyAccess;
+    const allowProtectedClassPropertyAccess =
+      options.allowProtectedClassPropertyAccess;
+    const allowIndexSignaturePropertyAccess =
+      (options.allowIndexSignaturePropertyAccess ?? false) ||
+      tsutils.isCompilerOptionEnabled(
+        services.program.getCompilerOptions(),
+        'noPropertyAccessFromIndexSignature',
+      );
 
-      return {
-        MemberExpression(node: TSESTree.MemberExpression): void {
+    return {
+      MemberExpression(node: TSESTree.MemberExpression): void {
+        if (
+          (allowPrivateClassPropertyAccess ||
+            allowProtectedClassPropertyAccess ||
+            allowIndexSignaturePropertyAccess) &&
+          node.computed
+        ) {
+          // for perf reasons - only fetch symbols if we have to
+          const propertySymbol =
+            services.getSymbolAtLocation(node.property) ??
+            services
+              .getTypeAtLocation(node.object)
+              .getNonNullableType()
+              .getProperties()
+              .find(
+                propertySymbol =>
+                  node.property.type === AST_NODE_TYPES.Literal &&
+                  propertySymbol.escapedName === node.property.value,
+              );
+          const modifierKind = getModifiers(
+            propertySymbol?.getDeclarations()?.[0],
+          )?.[0].kind;
           if (
-            (allowPrivateClassPropertyAccess ||
-              allowProtectedClassPropertyAccess ||
-              allowIndexSignaturePropertyAccess) &&
-            node.computed
+            (allowPrivateClassPropertyAccess &&
+              modifierKind === ts.SyntaxKind.PrivateKeyword) ||
+            (allowProtectedClassPropertyAccess &&
+              modifierKind === ts.SyntaxKind.ProtectedKeyword)
           ) {
-            // for perf reasons - only fetch symbols if we have to
-            const propertySymbol =
-              services.getSymbolAtLocation(node.property) ??
-              services
-                .getTypeAtLocation(node.object)
-                .getNonNullableType()
-                .getProperties()
-                .find(
-                  propertySymbol =>
-                    node.property.type === AST_NODE_TYPES.Literal &&
-                    propertySymbol.escapedName === node.property.value,
-                );
-            const modifierKind = getModifiers(
-              propertySymbol?.getDeclarations()?.[0],
-            )?.[0].kind;
+            return;
+          }
+          if (propertySymbol == null && allowIndexSignaturePropertyAccess) {
+            const objectType = services
+              .getTypeAtLocation(node.object)
+              .getNonNullableType();
+            const indexInfos = checker.getIndexInfosOfType(objectType);
             if (
-              (allowPrivateClassPropertyAccess &&
-                modifierKind === ts.SyntaxKind.PrivateKeyword) ||
-              (allowProtectedClassPropertyAccess &&
-                modifierKind === ts.SyntaxKind.ProtectedKeyword)
+              indexInfos.some(info =>
+                tsutils.isTypeFlagSet(info.keyType, ts.TypeFlags.StringLike),
+              )
             ) {
               return;
             }
-            if (propertySymbol == null && allowIndexSignaturePropertyAccess) {
-              const objectType = services
-                .getTypeAtLocation(node.object)
-                .getNonNullableType();
-              const indexInfos = checker.getIndexInfosOfType(objectType);
-              if (
-                indexInfos.some(info =>
-                  tsutils.isTypeFlagSet(info.keyType, ts.TypeFlags.StringLike),
-                )
-              ) {
-                return;
-              }
-            }
           }
-          rules.MemberExpression(node);
-        },
-      };
-    },
+        }
+        rules.MemberExpression(node);
+      },
+    };
   },
 });

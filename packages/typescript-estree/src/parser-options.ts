@@ -11,6 +11,7 @@ import type {
   SourceFile as NativeSourceFile,
 } from '@typescript/native/ast';
 import type {
+  API as NativeAPI,
   Checker as NativeChecker,
   Program as NativeProgram,
 } from '@typescript/native/sync';
@@ -291,14 +292,15 @@ export interface ParserServicesWithTypeInformation
  * enums have different values: import flags from `@typescript/native/sync`.
  */
 export interface NativeParserServices {
+  /** The API connection, whose `batch()` sends several requests in one round trip. */
+  api: NativeAPI;
   checker: NativeChecker;
   /** Maps an ESTree node to the tsgo node it was converted from. */
   getNativeNode: (node: TSESTree.Node) => NativeNode;
   program: NativeProgram;
   sourceFile: NativeSourceFile;
 }
-export interface ParserServicesWithNativeTypeInformation
-  extends ParserServicesWithTypeInformation {
+export interface ParserServicesWithNativeTypeInformation extends ParserServicesWithTypeInformation {
   backend: 'tsgo';
   native: NativeParserServices;
 }

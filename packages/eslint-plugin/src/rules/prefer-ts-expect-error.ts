@@ -37,63 +37,61 @@ export default createRule<[], MessageIds>({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create: {
-    default(context) {
-      const tsIgnoreRegExpSingleLine = /^\s*\/?\s*@ts-ignore/;
-      const tsIgnoreRegExpMultiLine = /^\s*(?:\/|\*)*\s*@ts-ignore/;
+  create(context) {
+    const tsIgnoreRegExpSingleLine = /^\s*\/?\s*@ts-ignore/;
+    const tsIgnoreRegExpMultiLine = /^\s*(?:\/|\*)*\s*@ts-ignore/;
 
-      function isLineComment(comment: TSESTree.Comment): boolean {
-        return comment.type === AST_TOKEN_TYPES.Line;
+    function isLineComment(comment: TSESTree.Comment): boolean {
+      return comment.type === AST_TOKEN_TYPES.Line;
+    }
+
+    function getLastCommentLine(comment: TSESTree.Comment): string {
+      if (isLineComment(comment)) {
+        return comment.value;
       }
 
-      function getLastCommentLine(comment: TSESTree.Comment): string {
-        if (isLineComment(comment)) {
-          return comment.value;
-        }
+      // For multiline comments - we look at only the last line.
+      const commentlines = comment.value.split(ASTUtils.LINEBREAK_MATCHER);
+      return commentlines[commentlines.length - 1];
+    }
 
-        // For multiline comments - we look at only the last line.
-        const commentlines = comment.value.split(ASTUtils.LINEBREAK_MATCHER);
-        return commentlines[commentlines.length - 1];
-      }
+    function isValidTsIgnorePresent(comment: TSESTree.Comment): boolean {
+      const line = getLastCommentLine(comment);
+      return isLineComment(comment)
+        ? tsIgnoreRegExpSingleLine.test(line)
+        : tsIgnoreRegExpMultiLine.test(line);
+    }
 
-      function isValidTsIgnorePresent(comment: TSESTree.Comment): boolean {
-        const line = getLastCommentLine(comment);
-        return isLineComment(comment)
-          ? tsIgnoreRegExpSingleLine.test(line)
-          : tsIgnoreRegExpMultiLine.test(line);
-      }
+    return {
+      Program(): void {
+        const comments = context.sourceCode.getAllComments();
+        comments.forEach(comment => {
+          if (isValidTsIgnorePresent(comment)) {
+            const lineCommentRuleFixer = (fixer: RuleFixer): RuleFix =>
+              fixer.replaceText(
+                comment,
+                `//${comment.value.replace('@ts-ignore', '@ts-expect-error')}`,
+              );
 
-      return {
-        Program(): void {
-          const comments = context.sourceCode.getAllComments();
-          comments.forEach(comment => {
-            if (isValidTsIgnorePresent(comment)) {
-              const lineCommentRuleFixer = (fixer: RuleFixer): RuleFix =>
-                fixer.replaceText(
-                  comment,
-                  `//${comment.value.replace('@ts-ignore', '@ts-expect-error')}`,
-                );
+            const blockCommentRuleFixer = (fixer: RuleFixer): RuleFix =>
+              fixer.replaceText(
+                comment,
+                `/*${comment.value.replace(
+                  '@ts-ignore',
+                  '@ts-expect-error',
+                )}*/`,
+              );
 
-              const blockCommentRuleFixer = (fixer: RuleFixer): RuleFix =>
-                fixer.replaceText(
-                  comment,
-                  `/*${comment.value.replace(
-                    '@ts-ignore',
-                    '@ts-expect-error',
-                  )}*/`,
-                );
-
-              context.report({
-                node: comment,
-                messageId: 'preferExpectErrorComment',
-                fix: isLineComment(comment)
-                  ? lineCommentRuleFixer
-                  : blockCommentRuleFixer,
-              });
-            }
-          });
-        },
-      };
-    },
+            context.report({
+              node: comment,
+              messageId: 'preferExpectErrorComment',
+              fix: isLineComment(comment)
+                ? lineCommentRuleFixer
+                : blockCommentRuleFixer,
+            });
+          }
+        });
+      },
+    };
   },
 });

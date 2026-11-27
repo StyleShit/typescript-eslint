@@ -49,25 +49,24 @@ export default createRule({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create: {
-    default(context) {
-      return {
-        'LogicalExpression[operator = "??"] > TSNonNullExpression.left'(
-          node: TSESTree.TSNonNullExpression,
-        ): void {
-          if (node.expression.type === TSESTree.AST_NODE_TYPES.Identifier) {
-            const scope = context.sourceCode.getScope(node);
-            const identifier = node.expression;
-            const variable = ASTUtils.findVariable(scope, identifier.name);
-            if (variable && !hasAssignmentBeforeNode(variable, node)) {
-              return;
-            }
+  create(context) {
+    return {
+      'LogicalExpression[operator = "??"] > TSNonNullExpression.left'(
+        node: TSESTree.TSNonNullExpression,
+      ): void {
+        if (node.expression.type === TSESTree.AST_NODE_TYPES.Identifier) {
+          const scope = context.sourceCode.getScope(node);
+          const identifier = node.expression;
+          const variable = ASTUtils.findVariable(scope, identifier.name);
+          if (variable && !hasAssignmentBeforeNode(variable, node)) {
+            return;
           }
+        }
 
-          context.report({
-            node,
-            messageId: 'noNonNullAssertedNullishCoalescing',
-            /*
+        context.report({
+          node,
+          messageId: 'noNonNullAssertedNullishCoalescing',
+          /*
           Use a suggestion instead of a fixer, because this can break type checks.
           The resulting type of the nullish coalesce is only influenced by the right operand if the left operand can be `null` or `undefined`.
           After removing the non-null assertion the type of the left operand might contain `null` or `undefined` and then the type of the right operand
@@ -80,24 +79,23 @@ export default createRule({
             return bar;
           }
           */
-            suggest: [
-              {
-                messageId: 'suggestRemovingNonNull',
-                fix(fixer): TSESLint.RuleFix {
-                  const exclamationMark = nullThrows(
-                    context.sourceCode.getLastToken(
-                      node,
-                      ASTUtils.isNonNullAssertionPunctuator,
-                    ),
-                    NullThrowsReasons.MissingToken('!', 'Non-null Assertion'),
-                  );
-                  return fixer.remove(exclamationMark);
-                },
+          suggest: [
+            {
+              messageId: 'suggestRemovingNonNull',
+              fix(fixer): TSESLint.RuleFix {
+                const exclamationMark = nullThrows(
+                  context.sourceCode.getLastToken(
+                    node,
+                    ASTUtils.isNonNullAssertionPunctuator,
+                  ),
+                  NullThrowsReasons.MissingToken('!', 'Non-null Assertion'),
+                );
+                return fixer.remove(exclamationMark);
               },
-            ],
-          });
-        },
-      };
-    },
+            },
+          ],
+        });
+      },
+    };
   },
 });

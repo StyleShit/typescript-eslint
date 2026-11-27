@@ -83,106 +83,104 @@ export default createRule<Options, MessageIds>({
       allowThrowingUnknown: false,
     },
   ],
-  create: {
-    default(context, [options]) {
-      const services = getParserServices(context);
+  create(context, [options]) {
+    const services = getParserServices(context);
 
-      function checkRejectCall(callExpression: TSESTree.CallExpression): void {
-        const argument = callExpression.arguments.at(0);
-        if (argument) {
-          const type = services.getTypeAtLocation(argument);
+    function checkRejectCall(callExpression: TSESTree.CallExpression): void {
+      const argument = callExpression.arguments.at(0);
+      if (argument) {
+        const type = services.getTypeAtLocation(argument);
 
-          if (typeMatchesSomeSpecifier(type, options.allow, services.program)) {
-            return;
-          }
-
-          if (options.allowThrowingAny && isTypeAnyType(type)) {
-            return;
-          }
-
-          if (options.allowThrowingUnknown && isTypeUnknownType(type)) {
-            return;
-          }
-
-          if (
-            isErrorLike(services.program, type) ||
-            isReadonlyErrorLike(services.program, type)
-          ) {
-            return;
-          }
-        } else if (options.allowEmptyReject) {
+        if (typeMatchesSomeSpecifier(type, options.allow, services.program)) {
           return;
         }
 
-        context.report({
-          node: callExpression,
-          messageId: 'rejectAnError',
+        if (options.allowThrowingAny && isTypeAnyType(type)) {
+          return;
+        }
+
+        if (options.allowThrowingUnknown && isTypeUnknownType(type)) {
+          return;
+        }
+
+        if (
+          isErrorLike(services.program, type) ||
+          isReadonlyErrorLike(services.program, type)
+        ) {
+          return;
+        }
+      } else if (options.allowEmptyReject) {
+        return;
+      }
+
+      context.report({
+        node: callExpression,
+        messageId: 'rejectAnError',
+      });
+    }
+
+    function typeAtLocationIsLikePromise(node: TSESTree.Node): boolean {
+      const type = services.getTypeAtLocation(node);
+      return (
+        isPromiseConstructorLike(services.program, type) ||
+        isPromiseLike(services.program, type)
+      );
+    }
+
+    return {
+      CallExpression(node): void {
+        const callee = skipChainExpression(node.callee);
+
+        if (callee.type !== AST_NODE_TYPES.MemberExpression) {
+          return;
+        }
+
+        if (
+          !isStaticMemberAccessOfValue(callee, context, 'reject') ||
+          !typeAtLocationIsLikePromise(callee.object)
+        ) {
+          return;
+        }
+
+        checkRejectCall(node);
+      },
+      NewExpression(node): void {
+        const callee = skipChainExpression(node.callee);
+        if (
+          !isPromiseConstructorLike(
+            services.program,
+            services.getTypeAtLocation(callee),
+          )
+        ) {
+          return;
+        }
+
+        const executor = node.arguments.at(0);
+        if (!executor || !isFunction(executor)) {
+          return;
+        }
+        const rejectParamNode = executor.params.at(1);
+        if (!rejectParamNode || !isIdentifier(rejectParamNode)) {
+          return;
+        }
+
+        // reject param is always present in variables declared by executor
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+        const rejectVariable = context.sourceCode
+          .getDeclaredVariables(executor)
+          .find(variable => variable.identifiers.includes(rejectParamNode))!;
+
+        rejectVariable.references.forEach(ref => {
+          if (
+            ref.identifier.parent.type !== AST_NODE_TYPES.CallExpression ||
+            ref.identifier !== ref.identifier.parent.callee
+          ) {
+            return;
+          }
+
+          checkRejectCall(ref.identifier.parent);
         });
-      }
-
-      function typeAtLocationIsLikePromise(node: TSESTree.Node): boolean {
-        const type = services.getTypeAtLocation(node);
-        return (
-          isPromiseConstructorLike(services.program, type) ||
-          isPromiseLike(services.program, type)
-        );
-      }
-
-      return {
-        CallExpression(node): void {
-          const callee = skipChainExpression(node.callee);
-
-          if (callee.type !== AST_NODE_TYPES.MemberExpression) {
-            return;
-          }
-
-          if (
-            !isStaticMemberAccessOfValue(callee, context, 'reject') ||
-            !typeAtLocationIsLikePromise(callee.object)
-          ) {
-            return;
-          }
-
-          checkRejectCall(node);
-        },
-        NewExpression(node): void {
-          const callee = skipChainExpression(node.callee);
-          if (
-            !isPromiseConstructorLike(
-              services.program,
-              services.getTypeAtLocation(callee),
-            )
-          ) {
-            return;
-          }
-
-          const executor = node.arguments.at(0);
-          if (!executor || !isFunction(executor)) {
-            return;
-          }
-          const rejectParamNode = executor.params.at(1);
-          if (!rejectParamNode || !isIdentifier(rejectParamNode)) {
-            return;
-          }
-
-          // reject param is always present in variables declared by executor
-          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-          const rejectVariable = context.sourceCode
-            .getDeclaredVariables(executor)
-            .find(variable => variable.identifiers.includes(rejectParamNode))!;
-
-          rejectVariable.references.forEach(ref => {
-            if (
-              ref.identifier.parent.type !== AST_NODE_TYPES.CallExpression ||
-              ref.identifier !== ref.identifier.parent.callee
-            ) {
-              return;
-            }
-
-            checkRejectCall(ref.identifier.parent);
-          });
-        },
-      };
-    },
+      },
+    };
   },
 });

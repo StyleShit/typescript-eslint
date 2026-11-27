@@ -50,159 +50,152 @@ export default createRule<Options, MessageIds>({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: ['constructor'],
-  create: {
-    default(context, [mode]) {
-      return {
-        'VariableDeclarator,PropertyDefinition,AccessorProperty,:matches(FunctionDeclaration,FunctionExpression) > AssignmentPattern'(
-          node:
+  create(context, [mode]) {
+    return {
+      'VariableDeclarator,PropertyDefinition,AccessorProperty,:matches(FunctionDeclaration,FunctionExpression) > AssignmentPattern'(
+        node:
+          | TSESTree.AccessorProperty
+          | TSESTree.AssignmentPattern
+          | TSESTree.PropertyDefinition
+          | TSESTree.VariableDeclarator,
+      ): void {
+        function getLHSRHS(): [
+          (
             | TSESTree.AccessorProperty
-            | TSESTree.AssignmentPattern
+            | TSESTree.BindingName
             | TSESTree.PropertyDefinition
-            | TSESTree.VariableDeclarator,
-        ): void {
-          function getLHSRHS(): [
-            (
-              | TSESTree.AccessorProperty
-              | TSESTree.BindingName
-              | TSESTree.PropertyDefinition
-            ),
-            TSESTree.Expression | null,
-          ] {
-            switch (node.type) {
-              case AST_NODE_TYPES.VariableDeclarator:
-                return [node.id, node.init];
-              case AST_NODE_TYPES.PropertyDefinition:
-              case AST_NODE_TYPES.AccessorProperty:
-                return [node, node.value];
-              case AST_NODE_TYPES.AssignmentPattern:
-                return [node.left, node.right];
-              default:
-                throw new Error(
-                  `Unhandled node type: ${(node as { type: string }).type}`,
-                );
-            }
+          ),
+          TSESTree.Expression | null,
+        ] {
+          switch (node.type) {
+            case AST_NODE_TYPES.VariableDeclarator:
+              return [node.id, node.init];
+            case AST_NODE_TYPES.PropertyDefinition:
+            case AST_NODE_TYPES.AccessorProperty:
+              return [node, node.value];
+            case AST_NODE_TYPES.AssignmentPattern:
+              return [node.left, node.right];
+            default:
+              throw new Error(
+                `Unhandled node type: ${(node as { type: string }).type}`,
+              );
           }
+        }
 
-          function isBuiltInArray(typeName: TSESTree.Identifier) {
-            return (
-              builtInArrays.has(typeName.name) &&
-              isReferenceToGlobalFunction(
-                typeName.name,
-                typeName,
-                context.sourceCode,
-              )
-            );
-          }
+        function isBuiltInArray(typeName: TSESTree.Identifier) {
+          return (
+            builtInArrays.has(typeName.name) &&
+            isReferenceToGlobalFunction(
+              typeName.name,
+              typeName,
+              context.sourceCode,
+            )
+          );
+        }
 
-          const [lhsName, rhs] = getLHSRHS();
-          const lhs = lhsName.typeAnnotation?.typeAnnotation;
+        const [lhsName, rhs] = getLHSRHS();
+        const lhs = lhsName.typeAnnotation?.typeAnnotation;
 
-          if (
-            rhs?.type !== AST_NODE_TYPES.NewExpression ||
-            rhs.callee.type !== AST_NODE_TYPES.Identifier
-          ) {
-            return;
-          }
-          if (
-            lhs &&
-            (lhs.type !== AST_NODE_TYPES.TSTypeReference ||
-              lhs.typeName.type !== AST_NODE_TYPES.Identifier ||
-              lhs.typeName.name !== rhs.callee.name ||
-              isBuiltInArray(lhs.typeName))
-          ) {
-            return;
-          }
-          if (mode === 'type-annotation') {
-            if (!lhs && rhs.typeArguments) {
-              const { callee, typeArguments } = rhs;
-              const typeAnnotation =
-                context.sourceCode.getText(callee) +
-                context.sourceCode.getText(typeArguments);
-              context.report({
-                node,
-                messageId: 'preferTypeAnnotation',
-                fix(fixer) {
-                  function getIDToAttachAnnotation():
-                    | TSESTree.Node
-                    | TSESTree.Token {
-                    if (
-                      node.type !== AST_NODE_TYPES.PropertyDefinition &&
-                      node.type !== AST_NODE_TYPES.AccessorProperty
-                    ) {
-                      return lhsName;
-                    }
-                    // If the property's computed, we have to attach the
-                    // annotation after the square bracket, not the enclosed expression
-                    const keyEnd = node.computed
-                      ? nullThrows(
-                          context.sourceCode.getTokenAfter(node.key),
-                          NullThrowsReasons.MissingToken(']', 'key'),
-                        )
-                      : node.key;
-                    if (!node.optional) {
-                      return keyEnd;
-                    }
-                    // An optional property's annotation goes after the `?`
-                    return nullThrows(
-                      context.sourceCode.getTokenAfter(keyEnd),
-                      NullThrowsReasons.MissingToken('?', 'key'),
-                    );
-                  }
-                  return [
-                    fixer.remove(typeArguments),
-                    fixer.insertTextAfter(
-                      getIDToAttachAnnotation(),
-                      `: ${typeAnnotation}`,
-                    ),
-                  ];
-                },
-              });
-            }
-            return;
-          }
-
-          const isolatedDeclarations =
-            context.languageOptions.parserOptions.isolatedDeclarations;
-          if (
-            !isolatedDeclarations &&
-            lhs?.typeArguments &&
-            !rhs.typeArguments
-          ) {
-            const hasParens =
-              context.sourceCode.getTokenAfter(rhs.callee)?.value === '(';
-            const extraComments = new Set(
-              context.sourceCode.getCommentsInside(lhs.parent),
-            );
-            context.sourceCode
-              .getCommentsInside(lhs.typeArguments)
-              .forEach(c => extraComments.delete(c));
+        if (
+          rhs?.type !== AST_NODE_TYPES.NewExpression ||
+          rhs.callee.type !== AST_NODE_TYPES.Identifier
+        ) {
+          return;
+        }
+        if (
+          lhs &&
+          (lhs.type !== AST_NODE_TYPES.TSTypeReference ||
+            lhs.typeName.type !== AST_NODE_TYPES.Identifier ||
+            lhs.typeName.name !== rhs.callee.name ||
+            isBuiltInArray(lhs.typeName))
+        ) {
+          return;
+        }
+        if (mode === 'type-annotation') {
+          if (!lhs && rhs.typeArguments) {
+            const { callee, typeArguments } = rhs;
+            const typeAnnotation =
+              context.sourceCode.getText(callee) +
+              context.sourceCode.getText(typeArguments);
             context.report({
               node,
-              messageId: 'preferConstructor',
-              *fix(fixer) {
-                yield fixer.remove(lhs.parent);
-                for (const comment of extraComments) {
-                  // A line comment runs to the end of the line, so it needs a
-                  // line break to keep the type arguments out of it
-                  const suffix =
-                    comment.type === AST_TOKEN_TYPES.Line ? '\n' : '';
-                  yield fixer.insertTextAfter(
-                    rhs.callee,
-                    context.sourceCode.getText(comment) + suffix,
+              messageId: 'preferTypeAnnotation',
+              fix(fixer) {
+                function getIDToAttachAnnotation():
+                  TSESTree.Node | TSESTree.Token {
+                  if (
+                    node.type !== AST_NODE_TYPES.PropertyDefinition &&
+                    node.type !== AST_NODE_TYPES.AccessorProperty
+                  ) {
+                    return lhsName;
+                  }
+                  // If the property's computed, we have to attach the
+                  // annotation after the square bracket, not the enclosed expression
+                  const keyEnd = node.computed
+                    ? nullThrows(
+                        context.sourceCode.getTokenAfter(node.key),
+                        NullThrowsReasons.MissingToken(']', 'key'),
+                      )
+                    : node.key;
+                  if (!node.optional) {
+                    return keyEnd;
+                  }
+                  // An optional property's annotation goes after the `?`
+                  return nullThrows(
+                    context.sourceCode.getTokenAfter(keyEnd),
+                    NullThrowsReasons.MissingToken('?', 'key'),
                   );
                 }
-                yield fixer.insertTextAfter(
-                  rhs.callee,
-                  context.sourceCode.getText(lhs.typeArguments),
-                );
-                if (!hasParens) {
-                  yield fixer.insertTextAfter(rhs.callee, '()');
-                }
+                return [
+                  fixer.remove(typeArguments),
+                  fixer.insertTextAfter(
+                    getIDToAttachAnnotation(),
+                    `: ${typeAnnotation}`,
+                  ),
+                ];
               },
             });
           }
-        },
-      };
-    },
+          return;
+        }
+
+        const isolatedDeclarations =
+          context.languageOptions.parserOptions.isolatedDeclarations;
+        if (!isolatedDeclarations && lhs?.typeArguments && !rhs.typeArguments) {
+          const hasParens =
+            context.sourceCode.getTokenAfter(rhs.callee)?.value === '(';
+          const extraComments = new Set(
+            context.sourceCode.getCommentsInside(lhs.parent),
+          );
+          context.sourceCode
+            .getCommentsInside(lhs.typeArguments)
+            .forEach(c => extraComments.delete(c));
+          context.report({
+            node,
+            messageId: 'preferConstructor',
+            *fix(fixer) {
+              yield fixer.remove(lhs.parent);
+              for (const comment of extraComments) {
+                // A line comment runs to the end of the line, so it needs a
+                // line break to keep the type arguments out of it
+                const suffix =
+                  comment.type === AST_TOKEN_TYPES.Line ? '\n' : '';
+                yield fixer.insertTextAfter(
+                  rhs.callee,
+                  context.sourceCode.getText(comment) + suffix,
+                );
+              }
+              yield fixer.insertTextAfter(
+                rhs.callee,
+                context.sourceCode.getText(lhs.typeArguments),
+              );
+              if (!hasParens) {
+                yield fixer.insertTextAfter(rhs.callee, '()');
+              }
+            },
+          });
+        }
+      },
+    };
   },
 });

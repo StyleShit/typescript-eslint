@@ -288,111 +288,109 @@ export default createRule<Options, MessageIds>({
       variables: true,
     },
   ],
-  create: {
-    default(context, optionsWithDefault) {
-      const options = parseOptions(optionsWithDefault[0]);
+  create(context, optionsWithDefault) {
+    const options = parseOptions(optionsWithDefault[0]);
 
-      /**
-       * Determines whether a given use-before-define case should be reported according to the options.
-       * @param variable The variable that gets used before being defined
-       * @param reference The reference to the variable
-       */
-      function isForbidden(
-        variable: TSESLint.Scope.Variable,
-        reference: TSESLint.Scope.Reference,
-      ): boolean {
-        if (options.ignoreTypeReferences && isTypeReference(reference)) {
-          return false;
-        }
-        if (isFunction(variable)) {
-          return options.functions;
-        }
-        if (isOuterClass(variable, reference)) {
-          return options.classes;
-        }
-        if (isOuterVariable(variable, reference)) {
-          return options.variables;
-        }
-        if (isOuterEnum(variable, reference)) {
-          return options.enums;
-        }
-        if (isTypedef(variable)) {
-          return options.typedefs;
-        }
-
-        return true;
+    /**
+     * Determines whether a given use-before-define case should be reported according to the options.
+     * @param variable The variable that gets used before being defined
+     * @param reference The reference to the variable
+     */
+    function isForbidden(
+      variable: TSESLint.Scope.Variable,
+      reference: TSESLint.Scope.Reference,
+    ): boolean {
+      if (options.ignoreTypeReferences && isTypeReference(reference)) {
+        return false;
+      }
+      if (isFunction(variable)) {
+        return options.functions;
+      }
+      if (isOuterClass(variable, reference)) {
+        return options.classes;
+      }
+      if (isOuterVariable(variable, reference)) {
+        return options.variables;
+      }
+      if (isOuterEnum(variable, reference)) {
+        return options.enums;
+      }
+      if (isTypedef(variable)) {
+        return options.typedefs;
       }
 
-      function isDefinedBeforeUse(
-        variable: TSESLint.Scope.Variable,
-        reference: TSESLint.Scope.Reference,
-      ): boolean {
-        return (
-          variable.identifiers[0].range[1] <= reference.identifier.range[1] &&
-          !(reference.isValueReference && isInInitializer(variable, reference))
-        );
-      }
+      return true;
+    }
 
-      /**
-       * Finds and validates all variables in a given scope.
-       */
-      function findVariablesInScope(scope: TSESLint.Scope.Scope): void {
-        scope.references.forEach(reference => {
-          const variable = reference.resolved;
+    function isDefinedBeforeUse(
+      variable: TSESLint.Scope.Variable,
+      reference: TSESLint.Scope.Reference,
+    ): boolean {
+      return (
+        variable.identifiers[0].range[1] <= reference.identifier.range[1] &&
+        !(reference.isValueReference && isInInitializer(variable, reference))
+      );
+    }
 
-          function report(): void {
-            context.report({
-              node: reference.identifier,
-              messageId: 'noUseBeforeDefine',
-              data: {
-                name: reference.identifier.name,
-              },
-            });
+    /**
+     * Finds and validates all variables in a given scope.
+     */
+    function findVariablesInScope(scope: TSESLint.Scope.Scope): void {
+      scope.references.forEach(reference => {
+        const variable = reference.resolved;
+
+        function report(): void {
+          context.report({
+            node: reference.identifier,
+            messageId: 'noUseBeforeDefine',
+            data: {
+              name: reference.identifier.name,
+            },
+          });
+        }
+
+        // Skips when the reference is:
+        // - initializations.
+        // - referring to an undefined variable.
+        // - referring to a global environment variable (there're no identifiers).
+        // - located preceded by the variable (except in initializers).
+        // - allowed by options.
+        if (reference.init) {
+          return;
+        }
+
+        if (!options.allowNamedExports && isNamedExports(reference)) {
+          if (!variable || !isDefinedBeforeUse(variable, reference)) {
+            report();
           }
+          return;
+        }
 
-          // Skips when the reference is:
-          // - initializations.
-          // - referring to an undefined variable.
-          // - referring to a global environment variable (there're no identifiers).
-          // - located preceded by the variable (except in initializers).
-          // - allowed by options.
-          if (reference.init) {
-            return;
-          }
+        if (!variable) {
+          return;
+        }
 
-          if (!options.allowNamedExports && isNamedExports(reference)) {
-            if (!variable || !isDefinedBeforeUse(variable, reference)) {
-              report();
-            }
-            return;
-          }
+        if (
+          variable.identifiers.length === 0 ||
+          isDefinedBeforeUse(variable, reference) ||
+          !isForbidden(variable, reference) ||
+          isClassRefInClassDecorator(variable, reference) ||
+          reference.from.type === TSESLint.Scope.ScopeType.functionType
+        ) {
+          return;
+        }
 
-          if (!variable) {
-            return;
-          }
+        // Reports.
+        report();
+      });
 
-          if (
-            variable.identifiers.length === 0 ||
-            isDefinedBeforeUse(variable, reference) ||
-            !isForbidden(variable, reference) ||
-            isClassRefInClassDecorator(variable, reference) ||
-            reference.from.type === TSESLint.Scope.ScopeType.functionType
-          ) {
-            return;
-          }
+      scope.childScopes.forEach(findVariablesInScope);
+    }
 
-          // Reports.
-          report();
-        });
-
-        scope.childScopes.forEach(findVariablesInScope);
-      }
-
-      return {
-        Program(node): void {
-          findVariablesInScope(context.sourceCode.getScope(node));
-        },
-      };
-    },
+    return {
+      Program(node): void {
+        findVariablesInScope(context.sourceCode.getScope(node));
+      },
+    };
   },
 });

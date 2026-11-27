@@ -96,8 +96,7 @@ export default createRule<Options, MessageIds>({
       [OptionKeys.VariableDeclarationIgnoreFunction]: false,
     },
   ],
-  create: {
-    default(
+  create(
     context,
     [
       {
@@ -313,6 +312,5 @@ export default createRule<Options, MessageIds>({
         report(node, getNodeName(node.id));
       },
     };
-    },
   },
 });

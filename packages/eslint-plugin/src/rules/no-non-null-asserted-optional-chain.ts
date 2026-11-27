@@ -21,56 +21,54 @@ export default createRule({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create: {
-    default(context) {
-      return {
-        // non-nulling a wrapped chain will scrub all nulls introduced by the chain
-        // (x?.y)!
-        // (x?.())!
-        'TSNonNullExpression > ChainExpression'(
-          node: TSESTree.ChainExpression,
-        ): void {
-          // selector guarantees this assertion
-          const parent = node.parent as TSESTree.TSNonNullExpression;
-          context.report({
-            node,
-            messageId: 'noNonNullOptionalChain',
-            // use a suggestion instead of a fixer, because this can obviously break type checks
-            suggest: [
-              {
-                messageId: 'suggestRemovingNonNull',
-                fix(fixer): TSESLint.RuleFix {
-                  return fixer.removeRange([
-                    parent.range[1] - 1,
-                    parent.range[1],
-                  ]);
-                },
+  create(context) {
+    return {
+      // non-nulling a wrapped chain will scrub all nulls introduced by the chain
+      // (x?.y)!
+      // (x?.())!
+      'TSNonNullExpression > ChainExpression'(
+        node: TSESTree.ChainExpression,
+      ): void {
+        // selector guarantees this assertion
+        const parent = node.parent as TSESTree.TSNonNullExpression;
+        context.report({
+          node,
+          messageId: 'noNonNullOptionalChain',
+          // use a suggestion instead of a fixer, because this can obviously break type checks
+          suggest: [
+            {
+              messageId: 'suggestRemovingNonNull',
+              fix(fixer): TSESLint.RuleFix {
+                return fixer.removeRange([
+                  parent.range[1] - 1,
+                  parent.range[1],
+                ]);
               },
-            ],
-          });
-        },
+            },
+          ],
+        });
+      },
 
-        // non-nulling at the end of a chain will scrub all nulls introduced by the chain
-        // x?.y!
-        // x?.()!
-        'ChainExpression > TSNonNullExpression'(
-          node: TSESTree.TSNonNullExpression,
-        ): void {
-          context.report({
-            node,
-            messageId: 'noNonNullOptionalChain',
-            // use a suggestion instead of a fixer, because this can obviously break type checks
-            suggest: [
-              {
-                messageId: 'suggestRemovingNonNull',
-                fix(fixer): TSESLint.RuleFix {
-                  return fixer.removeRange([node.range[1] - 1, node.range[1]]);
-                },
+      // non-nulling at the end of a chain will scrub all nulls introduced by the chain
+      // x?.y!
+      // x?.()!
+      'ChainExpression > TSNonNullExpression'(
+        node: TSESTree.TSNonNullExpression,
+      ): void {
+        context.report({
+          node,
+          messageId: 'noNonNullOptionalChain',
+          // use a suggestion instead of a fixer, because this can obviously break type checks
+          suggest: [
+            {
+              messageId: 'suggestRemovingNonNull',
+              fix(fixer): TSESLint.RuleFix {
+                return fixer.removeRange([node.range[1] - 1, node.range[1]]);
               },
-            ],
-          });
-        },
-      };
-    },
+            },
+          ],
+        });
+      },
+    };
   },
 });

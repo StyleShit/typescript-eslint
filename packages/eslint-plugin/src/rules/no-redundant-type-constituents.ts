@@ -212,335 +212,326 @@ export default createRule({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create: {
-    default(context) {
-      const services = getParserServices(context);
-      const typesCache = new Map<TSESTree.TypeNode, TypeFlagsWithName[]>();
+  create(context) {
+    const services = getParserServices(context);
+    const typesCache = new Map<TSESTree.TypeNode, TypeFlagsWithName[]>();
 
-      function getTypeNodeTypePartFlags(
-        typeNode: TSESTree.TypeNode,
-      ): TypeFlagsWithName[] {
-        const keywordTypeFlags = keywordNodeTypesToTsTypes.get(typeNode.type);
-        if (keywordTypeFlags) {
-          return [
-            {
-              typeFlags: keywordTypeFlags,
-              typeName: describeLiteralTypeNode(typeNode),
-            },
-          ];
-        }
-
-        if (
-          typeNode.type === AST_NODE_TYPES.TSLiteralType &&
-          typeNode.literal.type === AST_NODE_TYPES.Literal
-        ) {
-          return [
-            {
-              typeFlags:
-                primitiveTypeFlagTypes[
-                  typeof typeNode.literal
-                    .value as keyof typeof primitiveTypeFlagTypes
-                ],
-              typeName: describeLiteralTypeNode(typeNode),
-            },
-          ];
-        }
-
-        if (typeNode.type === AST_NODE_TYPES.TSUnionType) {
-          return typeNode.types.flatMap(getTypeNodeTypePartFlags);
-        }
-
-        const nodeType = services.getTypeAtLocation(typeNode);
-        const typeParts = unionTypePartsUnlessBoolean(nodeType);
-
-        return typeParts.map(typePart => ({
-          typeFlags: typePart.flags,
-          typeName: describeLiteralType(typePart),
-        }));
+    function getTypeNodeTypePartFlags(
+      typeNode: TSESTree.TypeNode,
+    ): TypeFlagsWithName[] {
+      const keywordTypeFlags = keywordNodeTypesToTsTypes.get(typeNode.type);
+      if (keywordTypeFlags) {
+        return [
+          {
+            typeFlags: keywordTypeFlags,
+            typeName: describeLiteralTypeNode(typeNode),
+          },
+        ];
       }
 
-      function getTypeNodeTypePartFlagsCached(
-        typeNode: TSESTree.TypeNode,
-      ): TypeFlagsWithName[] {
-        const existing = typesCache.get(typeNode);
-        if (existing) {
-          return existing;
-        }
-
-        const created = getTypeNodeTypePartFlags(typeNode);
-        typesCache.set(typeNode, created);
-        return created;
+      if (
+        typeNode.type === AST_NODE_TYPES.TSLiteralType &&
+        typeNode.literal.type === AST_NODE_TYPES.Literal
+      ) {
+        return [
+          {
+            typeFlags:
+              primitiveTypeFlagTypes[
+                typeof typeNode.literal
+                  .value as keyof typeof primitiveTypeFlagTypes
+              ],
+            typeName: describeLiteralTypeNode(typeNode),
+          },
+        ];
       }
 
-      return {
-        'TSIntersectionType:exit'(node: TSESTree.TSIntersectionType): void {
-          const seenLiteralTypes = new Map<PrimitiveTypeFlag, string[]>();
-          const seenPrimitiveTypes = new Map<
-            PrimitiveTypeFlag,
-            TSESTree.TypeNode[]
-          >();
-          const seenUnionTypes = new Map<
-            TSESTree.TypeNode,
-            TypeFlagsWithName[]
-          >();
+      if (typeNode.type === AST_NODE_TYPES.TSUnionType) {
+        return typeNode.types.flatMap(getTypeNodeTypePartFlags);
+      }
 
-          function checkIntersectionBottomAndTopTypes(
-            { typeFlags, typeName }: TypeFlagsWithName,
-            typeNode: TSESTree.TypeNode,
-          ): boolean {
-            for (const [messageId, checkFlag] of [
-              ['overrides', ts.TypeFlags.Any],
-              ['overrides', ts.TypeFlags.Never],
-              ['overridden', ts.TypeFlags.Unknown],
-            ] as const) {
-              if (typeFlags === checkFlag) {
-                context.report({
-                  node: typeNode,
-                  messageId:
-                    typeFlags === ts.TypeFlags.Any && typeName !== 'any'
-                      ? 'errorTypeOverrides'
-                      : messageId,
-                  data: {
-                    container: 'intersection',
-                    typeName,
-                  },
-                });
-                return true;
-              }
-            }
+      const nodeType = services.getTypeAtLocation(typeNode);
+      const typeParts = unionTypePartsUnlessBoolean(nodeType);
 
-            return false;
-          }
+      return typeParts.map(typePart => ({
+        typeFlags: typePart.flags,
+        typeName: describeLiteralType(typePart),
+      }));
+    }
 
-          for (const typeNode of node.types) {
-            const typePartFlags = getTypeNodeTypePartFlagsCached(typeNode);
+    function getTypeNodeTypePartFlagsCached(
+      typeNode: TSESTree.TypeNode,
+    ): TypeFlagsWithName[] {
+      const existing = typesCache.get(typeNode);
+      if (existing) {
+        return existing;
+      }
 
-            for (const typePart of typePartFlags) {
-              if (checkIntersectionBottomAndTopTypes(typePart, typeNode)) {
-                continue;
-              }
+      const created = getTypeNodeTypePartFlags(typeNode);
+      typesCache.set(typeNode, created);
+      return created;
+    }
 
-              for (const literalTypeFlag of literalTypeFlags) {
-                if (typePart.typeFlags === literalTypeFlag) {
-                  addToMapGroup(
-                    seenLiteralTypes,
-                    literalToPrimitiveTypeFlags[literalTypeFlag],
-                    typePart.typeName,
-                  );
-                  break;
-                }
-              }
+    return {
+      'TSIntersectionType:exit'(node: TSESTree.TSIntersectionType): void {
+        const seenLiteralTypes = new Map<PrimitiveTypeFlag, string[]>();
+        const seenPrimitiveTypes = new Map<
+          PrimitiveTypeFlag,
+          TSESTree.TypeNode[]
+        >();
+        const seenUnionTypes = new Map<
+          TSESTree.TypeNode,
+          TypeFlagsWithName[]
+        >();
 
-              for (const primitiveTypeFlag of primitiveTypeFlags) {
-                if (typePart.typeFlags === primitiveTypeFlag) {
-                  addToMapGroup(
-                    seenPrimitiveTypes,
-                    primitiveTypeFlag,
-                    typeNode,
-                  );
-                }
-              }
-            }
-            // if any typeNode is TSTypeReference and typePartFlags have more than 1 element, than the referenced type is definitely a union.
-            if (typePartFlags.length >= 2) {
-              seenUnionTypes.set(typeNode, typePartFlags);
-            }
-          }
-          /**
-           * @example
-           * ```ts
-           * type F = "a"|2|"b";
-           * type I = F & string;
-           * ```
-           * This function checks if all the union members of `F` are assignable to the other member of `I`. If every member is assignable, then its reported else not.
-           */
-          const checkIfUnionsAreAssignable = (): undefined => {
-            for (const [typeRef, typeValues] of seenUnionTypes) {
-              let primitive: number | undefined = undefined;
-              for (const { typeFlags } of typeValues) {
-                if (
-                  seenPrimitiveTypes.has(
-                    literalToPrimitiveTypeFlags[
-                      typeFlags as keyof typeof literalToPrimitiveTypeFlags
-                    ],
-                  )
-                ) {
-                  primitive =
-                    literalToPrimitiveTypeFlags[
-                      typeFlags as keyof typeof literalToPrimitiveTypeFlags
-                    ];
-                } else {
-                  primitive = undefined;
-                  break;
-                }
-              }
-              if (Number.isInteger(primitive)) {
-                context.report({
-                  node: typeRef,
-                  messageId: 'primitiveOverridden',
-                  data: {
-                    literal: typeValues.map(name => name.typeName).join(' | '),
-                    primitive:
-                      primitiveTypeFlagNames[
-                        // eslint-disable-next-line @typescript-eslint/no-unsafe-enum-assignment
-                        primitive as keyof typeof primitiveTypeFlagNames
-                      ],
-                  },
-                });
-              }
-            }
-          };
-          if (seenUnionTypes.size > 0) {
-            checkIfUnionsAreAssignable();
-            return;
-          }
-          // For each primitive type of all the seen primitive types,
-          // if there was a literal type seen that overrides it,
-          // report each of the primitive type's type nodes
-          for (const [primitiveTypeFlag, typeNodes] of seenPrimitiveTypes) {
-            const matchedLiteralTypes = seenLiteralTypes.get(primitiveTypeFlag);
-            if (matchedLiteralTypes) {
-              for (const typeNode of typeNodes) {
-                context.report({
-                  node: typeNode,
-                  messageId: 'primitiveOverridden',
-                  data: {
-                    literal: matchedLiteralTypes.join(' | '),
-                    primitive: primitiveTypeFlagNames[primitiveTypeFlag],
-                  },
-                });
-              }
-            }
-          }
-        },
-        'TSUnionType:exit'(node: TSESTree.TSUnionType): void {
-          const seenLiteralTypes = new Map<
-            PrimitiveTypeFlag,
-            TypeNodeWithValue[]
-          >();
-          const seenPrimitiveTypes = new Set<PrimitiveTypeFlag>();
-
-          function checkUnionBottomAndTopTypes(
-            { typeFlags, typeName }: TypeFlagsWithName,
-            typeNode: TSESTree.TypeNode,
-          ): boolean {
-            for (const checkFlag of [
-              ts.TypeFlags.Any,
-              ts.TypeFlags.Unknown,
-            ] as const) {
-              if (typeFlags === checkFlag) {
-                context.report({
-                  node: typeNode,
-                  messageId:
-                    typeFlags === ts.TypeFlags.Any && typeName !== 'any'
-                      ? 'errorTypeOverrides'
-                      : 'overrides',
-                  data: {
-                    container: 'union',
-                    typeName,
-                  },
-                });
-                return true;
-              }
-            }
-
-            if (
-              typeFlags === ts.TypeFlags.Never &&
-              !isNodeInsideReturnType(node)
-            ) {
+        function checkIntersectionBottomAndTopTypes(
+          { typeFlags, typeName }: TypeFlagsWithName,
+          typeNode: TSESTree.TypeNode,
+        ): boolean {
+          for (const [messageId, checkFlag] of [
+            ['overrides', ts.TypeFlags.Any],
+            ['overrides', ts.TypeFlags.Never],
+            ['overridden', ts.TypeFlags.Unknown],
+          ] as const) {
+            if (typeFlags === checkFlag) {
               context.report({
                 node: typeNode,
-                messageId: 'overridden',
+                messageId:
+                  typeFlags === ts.TypeFlags.Any && typeName !== 'any'
+                    ? 'errorTypeOverrides'
+                    : messageId,
                 data: {
-                  container: 'union',
-                  typeName: 'never',
+                  container: 'intersection',
+                  typeName,
                 },
               });
               return true;
             }
-
-            return false;
           }
 
-          for (const typeNode of node.types) {
-            const typePartFlags = getTypeNodeTypePartFlagsCached(typeNode);
+          return false;
+        }
 
-            for (const typePart of typePartFlags) {
-              if (checkUnionBottomAndTopTypes(typePart, typeNode)) {
-                continue;
+        for (const typeNode of node.types) {
+          const typePartFlags = getTypeNodeTypePartFlagsCached(typeNode);
+
+          for (const typePart of typePartFlags) {
+            if (checkIntersectionBottomAndTopTypes(typePart, typeNode)) {
+              continue;
+            }
+
+            for (const literalTypeFlag of literalTypeFlags) {
+              if (typePart.typeFlags === literalTypeFlag) {
+                addToMapGroup(
+                  seenLiteralTypes,
+                  literalToPrimitiveTypeFlags[literalTypeFlag],
+                  typePart.typeName,
+                );
+                break;
               }
+            }
 
-              for (const literalTypeFlag of literalTypeFlags) {
-                if (typePart.typeFlags === literalTypeFlag) {
-                  addToMapGroup(
-                    seenLiteralTypes,
-                    literalToPrimitiveTypeFlags[literalTypeFlag],
-                    {
-                      literalValue: typePart.typeName,
-                      typeNode,
-                    },
-                  );
-                  break;
-                }
-              }
-
-              for (const primitiveTypeFlag of primitiveTypeFlags) {
-                if ((typePart.typeFlags & primitiveTypeFlag) !== 0) {
-                  seenPrimitiveTypes.add(primitiveTypeFlag);
-                }
+            for (const primitiveTypeFlag of primitiveTypeFlags) {
+              if (typePart.typeFlags === primitiveTypeFlag) {
+                addToMapGroup(seenPrimitiveTypes, primitiveTypeFlag, typeNode);
               }
             }
           }
-
-          interface TypeFlagWithText {
-            literalValue: unknown;
-            primitiveTypeFlag: PrimitiveTypeFlag;
+          // if any typeNode is TSTypeReference and typePartFlags have more than 1 element, than the referenced type is definitely a union.
+          if (typePartFlags.length >= 2) {
+            seenUnionTypes.set(typeNode, typePartFlags);
           }
-
-          const overriddenTypeNodes = new Map<
-            TSESTree.TypeNode,
-            TypeFlagWithText[]
-          >();
-
-          // For each primitive type of all the seen literal types,
-          // if there was a primitive type seen that overrides it,
-          // upsert the literal text and primitive type under the backing type node
-          for (const [
-            primitiveTypeFlag,
-            typeNodesWithText,
-          ] of seenLiteralTypes) {
-            if (seenPrimitiveTypes.has(primitiveTypeFlag)) {
-              for (const { literalValue, typeNode } of typeNodesWithText) {
-                addToMapGroup(overriddenTypeNodes, typeNode, {
-                  literalValue,
-                  primitiveTypeFlag,
-                });
+        }
+        /**
+         * @example
+         * ```ts
+         * type F = "a"|2|"b";
+         * type I = F & string;
+         * ```
+         * This function checks if all the union members of `F` are assignable to the other member of `I`. If every member is assignable, then its reported else not.
+         */
+        const checkIfUnionsAreAssignable = (): undefined => {
+          for (const [typeRef, typeValues] of seenUnionTypes) {
+            let primitive: number | undefined = undefined;
+            for (const { typeFlags } of typeValues) {
+              if (
+                seenPrimitiveTypes.has(
+                  literalToPrimitiveTypeFlags[
+                    typeFlags as keyof typeof literalToPrimitiveTypeFlags
+                  ],
+                )
+              ) {
+                primitive =
+                  literalToPrimitiveTypeFlags[
+                    typeFlags as keyof typeof literalToPrimitiveTypeFlags
+                  ];
+              } else {
+                primitive = undefined;
+                break;
               }
             }
+            if (Number.isInteger(primitive)) {
+              context.report({
+                node: typeRef,
+                messageId: 'primitiveOverridden',
+                data: {
+                  literal: typeValues.map(name => name.typeName).join(' | '),
+                  primitive:
+                    primitiveTypeFlagNames[
+                      // eslint-disable-next-line @typescript-eslint/no-unsafe-enum-assignment
+                      primitive as keyof typeof primitiveTypeFlagNames
+                    ],
+                },
+              });
+            }
           }
-
-          // For each type node that had at least one overridden literal,
-          // group those literals by their primitive type,
-          // then report each primitive type with all its literals
-          for (const [typeNode, typeFlagsWithText] of overriddenTypeNodes) {
-            const grouped = arrayGroupByToMap(
-              typeFlagsWithText,
-              pair => pair.primitiveTypeFlag,
-            );
-
-            for (const [primitiveTypeFlag, pairs] of grouped) {
+        };
+        if (seenUnionTypes.size > 0) {
+          checkIfUnionsAreAssignable();
+          return;
+        }
+        // For each primitive type of all the seen primitive types,
+        // if there was a literal type seen that overrides it,
+        // report each of the primitive type's type nodes
+        for (const [primitiveTypeFlag, typeNodes] of seenPrimitiveTypes) {
+          const matchedLiteralTypes = seenLiteralTypes.get(primitiveTypeFlag);
+          if (matchedLiteralTypes) {
+            for (const typeNode of typeNodes) {
               context.report({
                 node: typeNode,
-                messageId: 'literalOverridden',
+                messageId: 'primitiveOverridden',
                 data: {
-                  literal: pairs.map(pair => pair.literalValue).join(' | '),
+                  literal: matchedLiteralTypes.join(' | '),
                   primitive: primitiveTypeFlagNames[primitiveTypeFlag],
                 },
               });
             }
           }
-        },
-      };
-    },
+        }
+      },
+      'TSUnionType:exit'(node: TSESTree.TSUnionType): void {
+        const seenLiteralTypes = new Map<
+          PrimitiveTypeFlag,
+          TypeNodeWithValue[]
+        >();
+        const seenPrimitiveTypes = new Set<PrimitiveTypeFlag>();
+
+        function checkUnionBottomAndTopTypes(
+          { typeFlags, typeName }: TypeFlagsWithName,
+          typeNode: TSESTree.TypeNode,
+        ): boolean {
+          for (const checkFlag of [
+            ts.TypeFlags.Any,
+            ts.TypeFlags.Unknown,
+          ] as const) {
+            if (typeFlags === checkFlag) {
+              context.report({
+                node: typeNode,
+                messageId:
+                  typeFlags === ts.TypeFlags.Any && typeName !== 'any'
+                    ? 'errorTypeOverrides'
+                    : 'overrides',
+                data: {
+                  container: 'union',
+                  typeName,
+                },
+              });
+              return true;
+            }
+          }
+
+          if (
+            typeFlags === ts.TypeFlags.Never &&
+            !isNodeInsideReturnType(node)
+          ) {
+            context.report({
+              node: typeNode,
+              messageId: 'overridden',
+              data: {
+                container: 'union',
+                typeName: 'never',
+              },
+            });
+            return true;
+          }
+
+          return false;
+        }
+
+        for (const typeNode of node.types) {
+          const typePartFlags = getTypeNodeTypePartFlagsCached(typeNode);
+
+          for (const typePart of typePartFlags) {
+            if (checkUnionBottomAndTopTypes(typePart, typeNode)) {
+              continue;
+            }
+
+            for (const literalTypeFlag of literalTypeFlags) {
+              if (typePart.typeFlags === literalTypeFlag) {
+                addToMapGroup(
+                  seenLiteralTypes,
+                  literalToPrimitiveTypeFlags[literalTypeFlag],
+                  {
+                    literalValue: typePart.typeName,
+                    typeNode,
+                  },
+                );
+                break;
+              }
+            }
+
+            for (const primitiveTypeFlag of primitiveTypeFlags) {
+              if ((typePart.typeFlags & primitiveTypeFlag) !== 0) {
+                seenPrimitiveTypes.add(primitiveTypeFlag);
+              }
+            }
+          }
+        }
+
+        interface TypeFlagWithText {
+          literalValue: unknown;
+          primitiveTypeFlag: PrimitiveTypeFlag;
+        }
+
+        const overriddenTypeNodes = new Map<
+          TSESTree.TypeNode,
+          TypeFlagWithText[]
+        >();
+
+        // For each primitive type of all the seen literal types,
+        // if there was a primitive type seen that overrides it,
+        // upsert the literal text and primitive type under the backing type node
+        for (const [primitiveTypeFlag, typeNodesWithText] of seenLiteralTypes) {
+          if (seenPrimitiveTypes.has(primitiveTypeFlag)) {
+            for (const { literalValue, typeNode } of typeNodesWithText) {
+              addToMapGroup(overriddenTypeNodes, typeNode, {
+                literalValue,
+                primitiveTypeFlag,
+              });
+            }
+          }
+        }
+
+        // For each type node that had at least one overridden literal,
+        // group those literals by their primitive type,
+        // then report each primitive type with all its literals
+        for (const [typeNode, typeFlagsWithText] of overriddenTypeNodes) {
+          const grouped = arrayGroupByToMap(
+            typeFlagsWithText,
+            pair => pair.primitiveTypeFlag,
+          );
+
+          for (const [primitiveTypeFlag, pairs] of grouped) {
+            context.report({
+              node: typeNode,
+              messageId: 'literalOverridden',
+              data: {
+                literal: pairs.map(pair => pair.literalValue).join(' | '),
+                primitive: primitiveTypeFlagNames[primitiveTypeFlag],
+              },
+            });
+          }
+        }
+      },
+    };
   },
 });

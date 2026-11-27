@@ -348,6 +348,36 @@ Rules can retrieve their full backing TypeScript type checker with `services.pro
 This can be necessary for TypeScript APIs not wrapped by the parser services.
 :::
 
+### tsgo-Specific Implementations
+
+On the [tsgo backend](../packages/Parser.mdx#tsgo-backend), the parser services above go through compatibility adapters over tsgo's own API, and each checker call can be an IPC round trip.
+A rule created with `RuleCreator` can provide a separate implementation for tsgo in `backends.tsgo`.
+`create` stays a regular ESLint `create` function and runs on every other backend.
+
+`backends.tsgo` is a function that is only called once a file is parsed by tsgo, so its module, and anything it imports from `@typescript/native`, isn't loaded otherwise.
+It receives the rule's `create`, so the tsgo implementation can reuse the listeners it doesn't replace:
+
+```ts
+import type * as TsgoImplementation from './my-rule.tsgo';
+
+export default createRule({
+  // ...
+  backends: {
+    tsgo: create =>
+      (require('./my-rule.tsgo') as typeof TsgoImplementation).createTsgo(
+        create,
+      ),
+  },
+  create(context) {
+    // ...
+  },
+});
+```
+
+Inside it, `ESLintUtils.getNativeParserServices(context).native` returns tsgo's `api`, `checker`, `program` and `sourceFile`, along with `getNativeNode` to map an ESTree node to its tsgo node.
+These are tsgo's own objects, not the classic `ts.*` ones, and tsgo's flag enums have different values, so import flags from `@typescript/native/sync`.
+Both implementations share the rule's `meta`, so they must report the same problems.
+
 ### Conditional Type Information
 
 We recommend _against_ changing rule logic based solely on whether `services.program` exists.

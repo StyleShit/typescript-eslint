@@ -124,8 +124,7 @@ export default createRule<Options, MessageId>({
       allowRegExp: true,
     },
   ],
-  create: {
-    default(context, [{ allow, ...options }]) {
+  create(context, [{ allow, ...options }]) {
     const services = getParserServices(context);
     const { program } = services;
     const checker = program.getTypeChecker();
@@ -178,6 +177,5 @@ export default createRule<Options, MessageId>({
         )
       );
     }
-    },
   },
 });

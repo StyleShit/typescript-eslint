@@ -104,60 +104,32 @@ export default createRule<
       requireNullish: false,
     },
   ],
-  create: {
-    default(context, [options]) {
-      const parserServices = getParserServices(context);
+  create(context, [options]) {
+    const parserServices = getParserServices(context);
 
-      const seenLogicals = new Set<TSESTree.LogicalExpression>();
+    const seenLogicals = new Set<TSESTree.LogicalExpression>();
 
-      return {
-        'LogicalExpression[operator!="??"]'(
-          node: TSESTree.LogicalExpression,
-        ): void {
-          if (seenLogicals.has(node)) {
-            return;
-          }
+    return {
+      'LogicalExpression[operator!="??"]'(
+        node: TSESTree.LogicalExpression,
+      ): void {
+        if (seenLogicals.has(node)) {
+          return;
+        }
 
-          const { newlySeenLogicals, operands } = gatherLogicalOperands(
-            node,
-            parserServices,
-            context.sourceCode,
-            options,
-          );
-          for (const logical of newlySeenLogicals) {
-            seenLogicals.add(logical);
-          }
+        const { newlySeenLogicals, operands } = gatherLogicalOperands(
+          node,
+          parserServices,
+          context.sourceCode,
+          options,
+        );
+        for (const logical of newlySeenLogicals) {
+          seenLogicals.add(logical);
+        }
 
-          let currentChain: ValidOperand[] = [];
-          for (const operand of operands) {
-            if (operand.type === OperandValidity.Invalid) {
-              analyzeChain(
-                context,
-                parserServices,
-                options,
-                node,
-                node.operator,
-                currentChain,
-              );
-              currentChain = [];
-            } else if (operand.type === OperandValidity.Last) {
-              analyzeChain(
-                context,
-                parserServices,
-                options,
-                node,
-                node.operator,
-                currentChain,
-                operand,
-              );
-              currentChain = [];
-            } else {
-              currentChain.push(operand);
-            }
-          }
-
-          // make sure to check whatever's left
-          if (currentChain.length > 0) {
+        let currentChain: ValidOperand[] = [];
+        for (const operand of operands) {
+          if (operand.type === OperandValidity.Invalid) {
             analyzeChain(
               context,
               parserServices,
@@ -166,70 +138,94 @@ export default createRule<
               node.operator,
               currentChain,
             );
-          }
-        },
-
-        // specific handling for `(foo ?? {}).bar` / `(foo || {}).bar`
-        'LogicalExpression[operator="||"], LogicalExpression[operator="??"]'(
-          node: TSESTree.LogicalExpression,
-        ): void {
-          const leftNode = node.left;
-          const rightNode = node.right;
-          const parentNode = node.parent;
-          const isRightNodeAnEmptyObjectLiteral =
-            rightNode.type === AST_NODE_TYPES.ObjectExpression &&
-            rightNode.properties.length === 0;
-          if (
-            !isRightNodeAnEmptyObjectLiteral ||
-            parentNode.type !== AST_NODE_TYPES.MemberExpression ||
-            parentNode.optional
-          ) {
-            return;
-          }
-
-          seenLogicals.add(node);
-
-          function isLeftSideLowerPrecedence(): boolean {
-            const logicalTsNode =
-              parserServices.esTreeNodeToTSNodeMap.get(node);
-            const leftTsNode =
-              parserServices.esTreeNodeToTSNodeMap.get(leftNode);
-            const leftPrecedence = getOperatorPrecedence(
-              leftTsNode.kind,
-              logicalTsNode.operatorToken.kind,
+            currentChain = [];
+          } else if (operand.type === OperandValidity.Last) {
+            analyzeChain(
+              context,
+              parserServices,
+              options,
+              node,
+              node.operator,
+              currentChain,
+              operand,
             );
-
-            return leftPrecedence < OperatorPrecedence.LeftHandSide;
+            currentChain = [];
+          } else {
+            currentChain.push(operand);
           }
+        }
 
-          checkNullishAndReport(context, parserServices, options, [leftNode], {
-            node: parentNode,
-            messageId: 'preferOptionalChain',
-            suggest: [
-              {
-                messageId: 'optionalChainSuggest',
-                fix: (fixer): RuleFix => {
-                  const leftNodeText = context.sourceCode.getText(leftNode);
-                  // Any node that is made of an operator with higher or equal precedence,
-                  const maybeWrappedLeftNode = isLeftSideLowerPrecedence()
-                    ? `(${leftNodeText})`
-                    : leftNodeText;
-                  const propertyToBeOptionalText = context.sourceCode.getText(
-                    parentNode.property,
-                  );
-                  const maybeWrappedProperty = parentNode.computed
-                    ? `[${propertyToBeOptionalText}]`
-                    : propertyToBeOptionalText;
-                  return fixer.replaceTextRange(
-                    parentNode.range,
-                    `${maybeWrappedLeftNode}?.${maybeWrappedProperty}`,
-                  );
-                },
+        // make sure to check whatever's left
+        if (currentChain.length > 0) {
+          analyzeChain(
+            context,
+            parserServices,
+            options,
+            node,
+            node.operator,
+            currentChain,
+          );
+        }
+      },
+
+      // specific handling for `(foo ?? {}).bar` / `(foo || {}).bar`
+      'LogicalExpression[operator="||"], LogicalExpression[operator="??"]'(
+        node: TSESTree.LogicalExpression,
+      ): void {
+        const leftNode = node.left;
+        const rightNode = node.right;
+        const parentNode = node.parent;
+        const isRightNodeAnEmptyObjectLiteral =
+          rightNode.type === AST_NODE_TYPES.ObjectExpression &&
+          rightNode.properties.length === 0;
+        if (
+          !isRightNodeAnEmptyObjectLiteral ||
+          parentNode.type !== AST_NODE_TYPES.MemberExpression ||
+          parentNode.optional
+        ) {
+          return;
+        }
+
+        seenLogicals.add(node);
+
+        function isLeftSideLowerPrecedence(): boolean {
+          const logicalTsNode = parserServices.esTreeNodeToTSNodeMap.get(node);
+          const leftTsNode = parserServices.esTreeNodeToTSNodeMap.get(leftNode);
+          const leftPrecedence = getOperatorPrecedence(
+            leftTsNode.kind,
+            logicalTsNode.operatorToken.kind,
+          );
+
+          return leftPrecedence < OperatorPrecedence.LeftHandSide;
+        }
+
+        checkNullishAndReport(context, parserServices, options, [leftNode], {
+          node: parentNode,
+          messageId: 'preferOptionalChain',
+          suggest: [
+            {
+              messageId: 'optionalChainSuggest',
+              fix: (fixer): RuleFix => {
+                const leftNodeText = context.sourceCode.getText(leftNode);
+                // Any node that is made of an operator with higher or equal precedence,
+                const maybeWrappedLeftNode = isLeftSideLowerPrecedence()
+                  ? `(${leftNodeText})`
+                  : leftNodeText;
+                const propertyToBeOptionalText = context.sourceCode.getText(
+                  parentNode.property,
+                );
+                const maybeWrappedProperty = parentNode.computed
+                  ? `[${propertyToBeOptionalText}]`
+                  : propertyToBeOptionalText;
+                return fixer.replaceTextRange(
+                  parentNode.range,
+                  `${maybeWrappedLeftNode}?.${maybeWrappedProperty}`,
+                );
               },
-            ],
-          });
-        },
-      };
-    },
+            },
+          ],
+        });
+      },
+    };
   },
 });

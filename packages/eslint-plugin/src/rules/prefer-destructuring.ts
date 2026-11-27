@@ -98,98 +98,95 @@ export default createRule<Options, MessageIds>({
     },
     {},
   ],
-  create: {
-    default(context, [enabledTypes, options]) {
-      const {
-        enforceForDeclarationWithTypeAnnotation = false,
-        enforceForRenamedProperties = false,
-      } = options;
-      const { esTreeNodeToTSNodeMap, program } = getParserServices(context);
-      const typeChecker = program.getTypeChecker();
-      const baseRules = baseRule.create(context);
-      let baseRulesWithoutFixCache: typeof baseRules | null = null;
+  create(context, [enabledTypes, options]) {
+    const {
+      enforceForDeclarationWithTypeAnnotation = false,
+      enforceForRenamedProperties = false,
+    } = options;
+    const { esTreeNodeToTSNodeMap, program } = getParserServices(context);
+    const typeChecker = program.getTypeChecker();
+    const baseRules = baseRule.create(context);
+    let baseRulesWithoutFixCache: typeof baseRules | null = null;
 
-      return {
-        AssignmentExpression(node): void {
-          if (node.operator !== '=') {
-            return;
-          }
-          performCheck(node.left, node.right, node);
-        },
-        VariableDeclarator(node): void {
-          performCheck(node.id, node.init, node);
-        },
-      };
-
-      function performCheck(
-        leftNode: TSESTree.BindingName | TSESTree.Expression,
-        rightNode: TSESTree.Expression | null,
-        reportNode: TSESTree.AssignmentExpression | TSESTree.VariableDeclarator,
-      ): void {
-        const rules =
-          leftNode.type === AST_NODE_TYPES.Identifier &&
-          leftNode.typeAnnotation == null
-            ? baseRules
-            : baseRulesWithoutFix();
-        if (
-          (leftNode.type === AST_NODE_TYPES.ArrayPattern ||
-            leftNode.type === AST_NODE_TYPES.Identifier ||
-            leftNode.type === AST_NODE_TYPES.ObjectPattern) &&
-          leftNode.typeAnnotation != null &&
-          !enforceForDeclarationWithTypeAnnotation
-        ) {
+    return {
+      AssignmentExpression(node): void {
+        if (node.operator !== '=') {
           return;
         }
+        performCheck(node.left, node.right, node);
+      },
+      VariableDeclarator(node): void {
+        performCheck(node.id, node.init, node);
+      },
+    };
 
-        if (
-          rightNode != null &&
-          isArrayLiteralIntegerIndexAccess(rightNode) &&
-          rightNode.object.type !== AST_NODE_TYPES.Super
-        ) {
-          const tsObj = esTreeNodeToTSNodeMap.get(rightNode.object);
-          const objType = typeChecker.getTypeAtLocation(tsObj);
-          if (!isTypeAnyOrIterableType(objType, typeChecker)) {
-            if (
-              !enforceForRenamedProperties ||
-              !getNormalizedEnabledType(reportNode.type, 'object')
-            ) {
-              return;
-            }
-            context.report({
-              node: reportNode,
-              messageId: 'preferDestructuring',
-              data: { type: 'object' },
-            });
+    function performCheck(
+      leftNode: TSESTree.BindingName | TSESTree.Expression,
+      rightNode: TSESTree.Expression | null,
+      reportNode: TSESTree.AssignmentExpression | TSESTree.VariableDeclarator,
+    ): void {
+      const rules =
+        leftNode.type === AST_NODE_TYPES.Identifier &&
+        leftNode.typeAnnotation == null
+          ? baseRules
+          : baseRulesWithoutFix();
+      if (
+        (leftNode.type === AST_NODE_TYPES.ArrayPattern ||
+          leftNode.type === AST_NODE_TYPES.Identifier ||
+          leftNode.type === AST_NODE_TYPES.ObjectPattern) &&
+        leftNode.typeAnnotation != null &&
+        !enforceForDeclarationWithTypeAnnotation
+      ) {
+        return;
+      }
+
+      if (
+        rightNode != null &&
+        isArrayLiteralIntegerIndexAccess(rightNode) &&
+        rightNode.object.type !== AST_NODE_TYPES.Super
+      ) {
+        const tsObj = esTreeNodeToTSNodeMap.get(rightNode.object);
+        const objType = typeChecker.getTypeAtLocation(tsObj);
+        if (!isTypeAnyOrIterableType(objType, typeChecker)) {
+          if (
+            !enforceForRenamedProperties ||
+            !getNormalizedEnabledType(reportNode.type, 'object')
+          ) {
             return;
           }
-        }
-
-        if (reportNode.type === AST_NODE_TYPES.AssignmentExpression) {
-          rules.AssignmentExpression(reportNode);
-        } else {
-          rules.VariableDeclarator(reportNode);
+          context.report({
+            node: reportNode,
+            messageId: 'preferDestructuring',
+            data: { type: 'object' },
+          });
+          return;
         }
       }
 
-      function getNormalizedEnabledType(
-        nodeType:
-          | AST_NODE_TYPES.AssignmentExpression
-          | AST_NODE_TYPES.VariableDeclarator,
-        destructuringType: 'array' | 'object',
-      ): boolean | undefined {
-        if ('object' in enabledTypes || 'array' in enabledTypes) {
-          return enabledTypes[destructuringType];
-        }
-        return enabledTypes[nodeType as keyof typeof enabledTypes][
-          destructuringType as keyof (typeof enabledTypes)[keyof typeof enabledTypes]
-        ];
+      if (reportNode.type === AST_NODE_TYPES.AssignmentExpression) {
+        rules.AssignmentExpression(reportNode);
+      } else {
+        rules.VariableDeclarator(reportNode);
       }
+    }
 
-      function baseRulesWithoutFix(): ReturnType<typeof baseRule.create> {
-        baseRulesWithoutFixCache ??= baseRule.create(noFixContext(context));
-        return baseRulesWithoutFixCache;
+    function getNormalizedEnabledType(
+      nodeType:
+        AST_NODE_TYPES.AssignmentExpression | AST_NODE_TYPES.VariableDeclarator,
+      destructuringType: 'array' | 'object',
+    ): boolean | undefined {
+      if ('object' in enabledTypes || 'array' in enabledTypes) {
+        return enabledTypes[destructuringType];
       }
-    },
+      return enabledTypes[nodeType as keyof typeof enabledTypes][
+        destructuringType as keyof (typeof enabledTypes)[keyof typeof enabledTypes]
+      ];
+    }
+
+    function baseRulesWithoutFix(): ReturnType<typeof baseRule.create> {
+      baseRulesWithoutFixCache ??= baseRule.create(noFixContext(context));
+      return baseRulesWithoutFixCache;
+    }
   },
 });
 

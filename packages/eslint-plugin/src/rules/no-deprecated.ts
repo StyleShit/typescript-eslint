@@ -62,421 +62,454 @@ export default createRule<Options, MessageIds>({
       allow: [],
     },
   ],
-  create: {
-    default(context, [options]) {
-      const { jsDocParsingMode } = context.languageOptions.parserOptions;
-      const allow = options.allow;
-      if (jsDocParsingMode === 'none' || jsDocParsingMode === 'type-info') {
-        throw new Error(
-          `Cannot be used with jsDocParsingMode: '${jsDocParsingMode}'.`,
-        );
+  create(context, [options]) {
+    const { jsDocParsingMode } = context.languageOptions.parserOptions;
+    const allow = options.allow;
+    if (jsDocParsingMode === 'none' || jsDocParsingMode === 'type-info') {
+      throw new Error(
+        `Cannot be used with jsDocParsingMode: '${jsDocParsingMode}'.`,
+      );
+    }
+
+    const services = getParserServices(context);
+    const checker = services.program.getTypeChecker();
+
+    // Deprecated jsdoc tags can be added on some symbol alias, e.g.
+    //
+    // export { /** @deprecated */ foo }
+    //
+    // When we import foo, its symbol is an alias of the exported foo (the one
+    // with the deprecated tag), which is itself an alias of the original foo.
+    // Therefore, we carefully go through the chain of aliases and check each
+    // immediate alias for deprecated tags
+    function searchForDeprecationInAliasesChain(
+      symbol: ts.Symbol | undefined,
+      checkDeprecationsOfAliasedSymbol: boolean,
+    ): string | undefined {
+      if (!symbol || !tsutils.isSymbolFlagSet(symbol, ts.SymbolFlags.Alias)) {
+        return checkDeprecationsOfAliasedSymbol
+          ? getJsDocDeprecation(symbol)
+          : undefined;
       }
-
-      const services = getParserServices(context);
-      const checker = services.program.getTypeChecker();
-
-      // Deprecated jsdoc tags can be added on some symbol alias, e.g.
-      //
-      // export { /** @deprecated */ foo }
-      //
-      // When we import foo, its symbol is an alias of the exported foo (the one
-      // with the deprecated tag), which is itself an alias of the original foo.
-      // Therefore, we carefully go through the chain of aliases and check each
-      // immediate alias for deprecated tags
-      function searchForDeprecationInAliasesChain(
-        symbol: ts.Symbol | undefined,
-        checkDeprecationsOfAliasedSymbol: boolean,
-      ): string | undefined {
-        if (!symbol || !tsutils.isSymbolFlagSet(symbol, ts.SymbolFlags.Alias)) {
-          return checkDeprecationsOfAliasedSymbol
-            ? getJsDocDeprecation(symbol)
-            : undefined;
+      const targetSymbol = checker.getAliasedSymbol(symbol);
+      // A circular alias (e.g. `export { x } from './self'`) never reaches a
+      // non-alias symbol, so stop once the chain comes back to a seen symbol.
+      const visitedSymbols = new Set<ts.Symbol>();
+      while (
+        tsutils.isSymbolFlagSet(symbol, ts.SymbolFlags.Alias) &&
+        !visitedSymbols.has(symbol)
+      ) {
+        visitedSymbols.add(symbol);
+        const reason = getJsDocDeprecation(symbol);
+        if (reason != null) {
+          return reason;
         }
-        const targetSymbol = checker.getAliasedSymbol(symbol);
-        // A circular alias (e.g. `export { x } from './self'`) never reaches a
-        // non-alias symbol, so stop once the chain comes back to a seen symbol.
-        const visitedSymbols = new Set<ts.Symbol>();
-        while (
-          tsutils.isSymbolFlagSet(symbol, ts.SymbolFlags.Alias) &&
-          !visitedSymbols.has(symbol)
-        ) {
-          visitedSymbols.add(symbol);
-          const reason = getJsDocDeprecation(symbol);
-          if (reason != null) {
-            return reason;
-          }
-          const immediateAliasedSymbol: ts.Symbol | undefined =
-            symbol.getDeclarations() &&
-            checker.getImmediateAliasedSymbol(symbol);
-          if (!immediateAliasedSymbol) {
-            break;
-          }
-          symbol = immediateAliasedSymbol;
-          if (checkDeprecationsOfAliasedSymbol && symbol === targetSymbol) {
-            return getJsDocDeprecation(symbol);
-          }
+        const immediateAliasedSymbol: ts.Symbol | undefined =
+          symbol.getDeclarations() && checker.getImmediateAliasedSymbol(symbol);
+        if (!immediateAliasedSymbol) {
+          break;
         }
-        return undefined;
+        symbol = immediateAliasedSymbol;
+        if (checkDeprecationsOfAliasedSymbol && symbol === targetSymbol) {
+          return getJsDocDeprecation(symbol);
+        }
       }
+      return undefined;
+    }
 
-      function isDeclaration(node: IdentifierLike): boolean {
-        const { parent } = node;
+    function isDeclaration(node: IdentifierLike): boolean {
+      const { parent } = node;
 
-        switch (parent.type) {
-          case AST_NODE_TYPES.ArrayPattern:
-            return parent.elements.includes(node as TSESTree.Identifier);
+      switch (parent.type) {
+        case AST_NODE_TYPES.ArrayPattern:
+          return parent.elements.includes(node as TSESTree.Identifier);
 
-          case AST_NODE_TYPES.ClassExpression:
-          case AST_NODE_TYPES.ClassDeclaration:
-          case AST_NODE_TYPES.VariableDeclarator:
-          case AST_NODE_TYPES.TSEnumMember:
-            return parent.id === node;
+        case AST_NODE_TYPES.ClassExpression:
+        case AST_NODE_TYPES.ClassDeclaration:
+        case AST_NODE_TYPES.VariableDeclarator:
+        case AST_NODE_TYPES.TSEnumMember:
+          return parent.id === node;
 
-          case AST_NODE_TYPES.MethodDefinition:
-          case AST_NODE_TYPES.PropertyDefinition:
-          case AST_NODE_TYPES.AccessorProperty:
-            return parent.key === node;
+        case AST_NODE_TYPES.MethodDefinition:
+        case AST_NODE_TYPES.PropertyDefinition:
+        case AST_NODE_TYPES.AccessorProperty:
+          return parent.key === node;
 
-          case AST_NODE_TYPES.Property:
-            // foo in "const { foo } = bar" will be processed twice, as parent.key
-            // and parent.value. The second is treated as a declaration.
+        case AST_NODE_TYPES.Property:
+          // foo in "const { foo } = bar" will be processed twice, as parent.key
+          // and parent.value. The second is treated as a declaration.
 
-            if (parent.value === node) {
-              // const { foo: bar } = baz; -- bar IS a declaration.
-              // const baz = { foo: bar }; -- bar IS NOT a declaration.
-              return parent.parent.type === AST_NODE_TYPES.ObjectPattern;
-            }
-            // const { foo: bar } = baz; -- foo IS NOT a declaration.
-            // const baz = { foo: bar }; -- foo IS a declaration.
-            return parent.parent.type === AST_NODE_TYPES.ObjectExpression;
+          if (parent.value === node) {
+            // const { foo: bar } = baz; -- bar IS a declaration.
+            // const baz = { foo: bar }; -- bar IS NOT a declaration.
+            return parent.parent.type === AST_NODE_TYPES.ObjectPattern;
+          }
+          // const { foo: bar } = baz; -- foo IS NOT a declaration.
+          // const baz = { foo: bar }; -- foo IS a declaration.
+          return parent.parent.type === AST_NODE_TYPES.ObjectExpression;
 
-          case AST_NODE_TYPES.AssignmentPattern:
-            // foo in "const { foo = "" } = bar" will be processed twice, as parent.parent.key
-            // and parent.left. The second is treated as a declaration.
-            return parent.left === node;
+        case AST_NODE_TYPES.AssignmentPattern:
+          // foo in "const { foo = "" } = bar" will be processed twice, as parent.parent.key
+          // and parent.left. The second is treated as a declaration.
+          return parent.left === node;
 
-          case AST_NODE_TYPES.ArrowFunctionExpression:
-          case AST_NODE_TYPES.FunctionDeclaration:
-          case AST_NODE_TYPES.FunctionExpression:
-          case AST_NODE_TYPES.TSDeclareFunction:
-          case AST_NODE_TYPES.TSEmptyBodyFunctionExpression:
-          case AST_NODE_TYPES.TSEnumDeclaration:
-          case AST_NODE_TYPES.TSInterfaceDeclaration:
-          case AST_NODE_TYPES.TSMethodSignature:
-          case AST_NODE_TYPES.TSModuleDeclaration:
-          case AST_NODE_TYPES.TSParameterProperty:
-          case AST_NODE_TYPES.TSPropertySignature:
-          case AST_NODE_TYPES.TSTypeAliasDeclaration:
-          case AST_NODE_TYPES.TSTypeParameter:
+        case AST_NODE_TYPES.ArrowFunctionExpression:
+        case AST_NODE_TYPES.FunctionDeclaration:
+        case AST_NODE_TYPES.FunctionExpression:
+        case AST_NODE_TYPES.TSDeclareFunction:
+        case AST_NODE_TYPES.TSEmptyBodyFunctionExpression:
+        case AST_NODE_TYPES.TSEnumDeclaration:
+        case AST_NODE_TYPES.TSInterfaceDeclaration:
+        case AST_NODE_TYPES.TSMethodSignature:
+        case AST_NODE_TYPES.TSModuleDeclaration:
+        case AST_NODE_TYPES.TSParameterProperty:
+        case AST_NODE_TYPES.TSPropertySignature:
+        case AST_NODE_TYPES.TSTypeAliasDeclaration:
+        case AST_NODE_TYPES.TSTypeParameter:
+          return true;
+
+        // treat `export import Bar = Foo;` (and `import Foo = require('...')`) as declarations
+        case AST_NODE_TYPES.TSImportEqualsDeclaration:
+          return parent.id === node;
+
+        default:
+          return false;
+      }
+    }
+
+    function isInsideImport(node: TSESTree.Node): boolean {
+      let current = node;
+
+      while (true) {
+        switch (current.type) {
+          case AST_NODE_TYPES.ImportDeclaration:
             return true;
 
-          // treat `export import Bar = Foo;` (and `import Foo = require('...')`) as declarations
-          case AST_NODE_TYPES.TSImportEqualsDeclaration:
-            return parent.id === node;
+          case AST_NODE_TYPES.ArrowFunctionExpression:
+          case AST_NODE_TYPES.ExportAllDeclaration:
+          case AST_NODE_TYPES.ExportNamedDeclaration:
+          case AST_NODE_TYPES.BlockStatement:
+          case AST_NODE_TYPES.ClassDeclaration:
+          case AST_NODE_TYPES.TSInterfaceDeclaration:
+          case AST_NODE_TYPES.FunctionDeclaration:
+          case AST_NODE_TYPES.FunctionExpression:
+          case AST_NODE_TYPES.Program:
+          case AST_NODE_TYPES.TSUnionType:
+          case AST_NODE_TYPES.VariableDeclarator:
+            return false;
 
           default:
-            return false;
+            current = current.parent;
         }
       }
+    }
 
-      function isInsideImport(node: TSESTree.Node): boolean {
-        let current = node;
-
-        while (true) {
-          switch (current.type) {
-            case AST_NODE_TYPES.ImportDeclaration:
-              return true;
-
-            case AST_NODE_TYPES.ArrowFunctionExpression:
-            case AST_NODE_TYPES.ExportAllDeclaration:
-            case AST_NODE_TYPES.ExportNamedDeclaration:
-            case AST_NODE_TYPES.BlockStatement:
-            case AST_NODE_TYPES.ClassDeclaration:
-            case AST_NODE_TYPES.TSInterfaceDeclaration:
-            case AST_NODE_TYPES.FunctionDeclaration:
-            case AST_NODE_TYPES.FunctionExpression:
-            case AST_NODE_TYPES.Program:
-            case AST_NODE_TYPES.TSUnionType:
-            case AST_NODE_TYPES.VariableDeclarator:
-              return false;
-
-            default:
-              current = current.parent;
-          }
-        }
+    function getJsDocDeprecation(
+      symbol: ts.Signature | ts.Symbol | undefined,
+    ): string | undefined {
+      let jsDocTags: ts.JSDocTagInfo[] | undefined;
+      try {
+        jsDocTags = symbol?.getJsDocTags(checker);
+      } catch {
+        // workaround for https://github.com/microsoft/TypeScript/issues/60024
+        return;
       }
+      const tag = jsDocTags?.find(tag => tag.name === 'deprecated');
 
-      function getJsDocDeprecation(
-        symbol: ts.Signature | ts.Symbol | undefined,
-      ): string | undefined {
-        let jsDocTags: ts.JSDocTagInfo[] | undefined;
-        try {
-          jsDocTags = symbol?.getJsDocTags(checker);
-        } catch {
-          // workaround for https://github.com/microsoft/TypeScript/issues/60024
-          return;
-        }
-        const tag = jsDocTags?.find(tag => tag.name === 'deprecated');
-
-        if (!tag) {
-          return undefined;
-        }
-
-        const displayParts = tag.text;
-
-        return displayParts ? ts.displayPartsToString(displayParts) : '';
-      }
-
-      function getPropertyDeprecation(
-        type: ts.Type,
-        propertyName: string,
-      ): { reason: string; type: ts.Type } | undefined {
-        for (const constituent of tsutils.unionConstituents(type)) {
-          const reason = getJsDocDeprecation(
-            constituent.getProperty(propertyName),
-          );
-
-          if (reason != null) {
-            return { type: constituent, reason };
-          }
-        }
-
+      if (!tag) {
         return undefined;
       }
 
-      type CallLikeNode =
-        | TSESTree.CallExpression
-        | TSESTree.JSXOpeningElement
-        | TSESTree.NewExpression
-        | TSESTree.TaggedTemplateExpression;
+      const displayParts = tag.text;
 
-      function isNodeCalleeOfParent(node: TSESTree.Node): node is CallLikeNode {
-        switch (node.parent?.type) {
-          case AST_NODE_TYPES.NewExpression:
-          case AST_NODE_TYPES.CallExpression:
-            return node.parent.callee === node;
+      return displayParts ? ts.displayPartsToString(displayParts) : '';
+    }
 
-          case AST_NODE_TYPES.TaggedTemplateExpression:
-            return node.parent.tag === node;
-
-          case AST_NODE_TYPES.JSXOpeningElement:
-            return node.parent.name === node;
-
-          default:
-            return false;
-        }
-      }
-
-      function getCallLikeNode(node: TSESTree.Node): CallLikeNode | undefined {
-        let callee = node;
-
-        while (
-          callee.parent?.type === AST_NODE_TYPES.MemberExpression &&
-          callee.parent.property === callee
-        ) {
-          callee = callee.parent;
-        }
-
-        return isNodeCalleeOfParent(callee) ? callee : undefined;
-      }
-
-      function getCallLikeDeprecation(node: CallLikeNode): string | undefined {
-        const tsNode = services.esTreeNodeToTSNodeMap.get(node.parent);
-
-        // If the node is a direct function call, we look for its signature.
-        const signature = nullThrows(
-          checker.getResolvedSignature(tsNode as ts.CallLikeExpression),
-          'Expected call like node to have signature',
+    function getPropertyDeprecation(
+      type: ts.Type,
+      propertyName: string,
+    ): { reason: string; type: ts.Type } | undefined {
+      for (const constituent of tsutils.unionConstituents(type)) {
+        const reason = getJsDocDeprecation(
+          constituent.getProperty(propertyName),
         );
 
-        const symbol = services.getSymbolAtLocation(node);
-        const aliasedSymbol =
-          symbol != null &&
-          tsutils.isSymbolFlagSet(symbol, ts.SymbolFlags.Alias)
-            ? checker.getAliasedSymbol(symbol)
-            : symbol;
-        const symbolDeclarationKind = aliasedSymbol?.declarations?.[0].kind;
-        // Properties with function-like types have "deprecated" jsdoc
-        // on their symbols, not on their signatures:
-        //
-        // interface Props {
-        //   /** @deprecated */
-        //   property: () => 'foo'
-        //   ^symbol^  ^signature^
-        // }
-        if (
-          symbolDeclarationKind !== ts.SyntaxKind.MethodDeclaration &&
-          symbolDeclarationKind !== ts.SyntaxKind.FunctionDeclaration &&
-          symbolDeclarationKind !== ts.SyntaxKind.MethodSignature
-        ) {
-          return (
-            searchForDeprecationInAliasesChain(symbol, true) ??
-            getJsDocDeprecation(signature) ??
-            getJsDocDeprecation(aliasedSymbol)
-          );
+        if (reason != null) {
+          return { type: constituent, reason };
         }
+      }
+
+      return undefined;
+    }
+
+    type CallLikeNode =
+      | TSESTree.CallExpression
+      | TSESTree.JSXOpeningElement
+      | TSESTree.NewExpression
+      | TSESTree.TaggedTemplateExpression;
+
+    function isNodeCalleeOfParent(node: TSESTree.Node): node is CallLikeNode {
+      switch (node.parent?.type) {
+        case AST_NODE_TYPES.NewExpression:
+        case AST_NODE_TYPES.CallExpression:
+          return node.parent.callee === node;
+
+        case AST_NODE_TYPES.TaggedTemplateExpression:
+          return node.parent.tag === node;
+
+        case AST_NODE_TYPES.JSXOpeningElement:
+          return node.parent.name === node;
+
+        default:
+          return false;
+      }
+    }
+
+    function getCallLikeNode(node: TSESTree.Node): CallLikeNode | undefined {
+      let callee = node;
+
+      while (
+        callee.parent?.type === AST_NODE_TYPES.MemberExpression &&
+        callee.parent.property === callee
+      ) {
+        callee = callee.parent;
+      }
+
+      return isNodeCalleeOfParent(callee) ? callee : undefined;
+    }
+
+    function getCallLikeDeprecation(node: CallLikeNode): string | undefined {
+      const tsNode = services.esTreeNodeToTSNodeMap.get(node.parent);
+
+      // If the node is a direct function call, we look for its signature.
+      const signature = nullThrows(
+        checker.getResolvedSignature(tsNode as ts.CallLikeExpression),
+        'Expected call like node to have signature',
+      );
+
+      const symbol = services.getSymbolAtLocation(node);
+      const aliasedSymbol =
+        symbol != null && tsutils.isSymbolFlagSet(symbol, ts.SymbolFlags.Alias)
+          ? checker.getAliasedSymbol(symbol)
+          : symbol;
+      const symbolDeclarationKind = aliasedSymbol?.declarations?.[0].kind;
+      // Properties with function-like types have "deprecated" jsdoc
+      // on their symbols, not on their signatures:
+      //
+      // interface Props {
+      //   /** @deprecated */
+      //   property: () => 'foo'
+      //   ^symbol^  ^signature^
+      // }
+      if (
+        symbolDeclarationKind !== ts.SyntaxKind.MethodDeclaration &&
+        symbolDeclarationKind !== ts.SyntaxKind.FunctionDeclaration &&
+        symbolDeclarationKind !== ts.SyntaxKind.MethodSignature
+      ) {
         return (
-          searchForDeprecationInAliasesChain(
-            symbol,
-            // Here we're working with a function declaration or method.
-            // Both can have 1 or more overloads, each overload creates one
-            // ts.Declaration which is placed in symbol.declarations.
-            //
-            // Imagine the following code:
-            //
-            // function foo(): void
-            // /** @deprecated Some Reason */
-            // function foo(arg: string): void
-            // function foo(arg?: string): void {}
-            //
-            // foo()    // <- foo is our symbol
-            //
-            // If we call getJsDocDeprecation(checker.getAliasedSymbol(symbol)),
-            // we get 'Some Reason', but after all, we are calling foo with
-            // a signature that is not deprecated!
-            // It works this way because symbol.getJsDocTags returns tags from
-            // all symbol declarations combined into one array. And AFAIK there is
-            // no publicly exported TS function that can tell us if a particular
-            // declaration is deprecated or not.
-            //
-            // So, in case of function and method declarations, we don't check original
-            // aliased symbol, but rely on the getJsDocDeprecation(signature) call below.
-            false,
-          ) ?? getJsDocDeprecation(signature)
+          searchForDeprecationInAliasesChain(symbol, true) ??
+          getJsDocDeprecation(signature) ??
+          getJsDocDeprecation(aliasedSymbol)
+        );
+      }
+      return (
+        searchForDeprecationInAliasesChain(
+          symbol,
+          // Here we're working with a function declaration or method.
+          // Both can have 1 or more overloads, each overload creates one
+          // ts.Declaration which is placed in symbol.declarations.
+          //
+          // Imagine the following code:
+          //
+          // function foo(): void
+          // /** @deprecated Some Reason */
+          // function foo(arg: string): void
+          // function foo(arg?: string): void {}
+          //
+          // foo()    // <- foo is our symbol
+          //
+          // If we call getJsDocDeprecation(checker.getAliasedSymbol(symbol)),
+          // we get 'Some Reason', but after all, we are calling foo with
+          // a signature that is not deprecated!
+          // It works this way because symbol.getJsDocTags returns tags from
+          // all symbol declarations combined into one array. And AFAIK there is
+          // no publicly exported TS function that can tell us if a particular
+          // declaration is deprecated or not.
+          //
+          // So, in case of function and method declarations, we don't check original
+          // aliased symbol, but rely on the getJsDocDeprecation(signature) call below.
+          false,
+        ) ?? getJsDocDeprecation(signature)
+      );
+    }
+
+    function getJSXAttributeDeprecation(
+      openingElement: TSESTree.JSXOpeningElement,
+      propertyName: string,
+    ): string | undefined {
+      const contextualType = nullThrows(
+        services.getContextualType(
+          openingElement.name as unknown as TSESTree.Expression,
+        ),
+        'Expected JSX opening element name to have contextualType',
+      );
+
+      return getPropertyDeprecation(contextualType, propertyName)?.reason;
+    }
+
+    function getDeprecationReason(node: IdentifierLike): string | undefined {
+      const callLikeNode = getCallLikeNode(node);
+      if (callLikeNode) {
+        return getCallLikeDeprecation(callLikeNode);
+      }
+
+      if (
+        node.parent.type === AST_NODE_TYPES.JSXAttribute &&
+        node.type !== AST_NODE_TYPES.Super
+      ) {
+        return getJSXAttributeDeprecation(node.parent.parent, node.name);
+      }
+
+      if (
+        node.parent.type === AST_NODE_TYPES.Property &&
+        node.type !== AST_NODE_TYPES.Super
+      ) {
+        const property = services
+          .getTypeAtLocation(node.parent.parent)
+          .getProperty(node.name);
+        const propertySymbol = services.getSymbolAtLocation(node);
+        const valueSymbol = checker.getShorthandAssignmentValueSymbol(
+          propertySymbol?.valueDeclaration,
+        );
+        return (
+          searchForDeprecationInAliasesChain(propertySymbol, true) ??
+          getJsDocDeprecation(property) ??
+          getJsDocDeprecation(propertySymbol) ??
+          searchForDeprecationInAliasesChain(valueSymbol, true)
         );
       }
 
-      function getJSXAttributeDeprecation(
-        openingElement: TSESTree.JSXOpeningElement,
-        propertyName: string,
-      ): string | undefined {
-        const contextualType = nullThrows(
-          services.getContextualType(
-            openingElement.name as unknown as TSESTree.Expression,
-          ),
-          'Expected JSX opening element name to have contextualType',
-        );
+      return searchForDeprecationInAliasesChain(
+        services.getSymbolAtLocation(node),
+        true,
+      );
+    }
 
-        return getPropertyDeprecation(contextualType, propertyName)?.reason;
+    function checkIdentifier(node: IdentifierLike): void {
+      if (isDeclaration(node) || isInsideImport(node)) {
+        return;
       }
 
-      function getDeprecationReason(node: IdentifierLike): string | undefined {
-        const callLikeNode = getCallLikeNode(node);
-        if (callLikeNode) {
-          return getCallLikeDeprecation(callLikeNode);
-        }
+      const reason = getDeprecationReason(node);
 
-        if (
-          node.parent.type === AST_NODE_TYPES.JSXAttribute &&
-          node.type !== AST_NODE_TYPES.Super
-        ) {
-          return getJSXAttributeDeprecation(node.parent.parent, node.name);
-        }
-
-        if (
-          node.parent.type === AST_NODE_TYPES.Property &&
-          node.type !== AST_NODE_TYPES.Super
-        ) {
-          const property = services
-            .getTypeAtLocation(node.parent.parent)
-            .getProperty(node.name);
-          const propertySymbol = services.getSymbolAtLocation(node);
-          const valueSymbol = checker.getShorthandAssignmentValueSymbol(
-            propertySymbol?.valueDeclaration,
-          );
-          return (
-            searchForDeprecationInAliasesChain(propertySymbol, true) ??
-            getJsDocDeprecation(property) ??
-            getJsDocDeprecation(propertySymbol) ??
-            searchForDeprecationInAliasesChain(valueSymbol, true)
-          );
-        }
-
-        return searchForDeprecationInAliasesChain(
-          services.getSymbolAtLocation(node),
-          true,
-        );
+      if (reason == null) {
+        return;
       }
 
-      function checkIdentifier(node: IdentifierLike): void {
-        if (isDeclaration(node) || isInsideImport(node)) {
-          return;
-        }
-
-        const reason = getDeprecationReason(node);
-
-        if (reason == null) {
-          return;
-        }
-
-        const type = services.getTypeAtLocation(node);
-        if (
-          typeMatchesSomeSpecifier(type, allow, services.program) ||
-          valueMatchesSomeSpecifier(node, allow, services.program, type)
-        ) {
-          return;
-        }
-
-        const name = getReportedNodeName(node);
-
-        context.report({
-          ...(reason
-            ? {
-                messageId: 'deprecatedWithReason',
-                data: { name, reason },
-              }
-            : {
-                messageId: 'deprecated',
-                data: { name },
-              }),
-          node,
-        });
+      const type = services.getTypeAtLocation(node);
+      if (
+        typeMatchesSomeSpecifier(type, allow, services.program) ||
+        valueMatchesSomeSpecifier(node, allow, services.program, type)
+      ) {
+        return;
       }
 
-      /**
-       * The name a key refers to, or `null` when it cannot be determined
-       * statically, as in `const x: Foo = { [someString]: 1 }`.
-       */
-      function getObjectLiteralPropertyName(
-        node: TSESTree.Property,
-      ): string | null {
-        if (!node.computed) {
-          return node.key.type === AST_NODE_TYPES.Identifier
-            ? node.key.name
-            : String(node.key.value);
-        }
+      const name = getReportedNodeName(node);
 
-        const keyType = services.getTypeAtLocation(node.key);
+      context.report({
+        ...(reason
+          ? {
+              messageId: 'deprecatedWithReason',
+              data: { name, reason },
+            }
+          : {
+              messageId: 'deprecated',
+              data: { name },
+            }),
+        node,
+      });
+    }
 
-        return keyType.isStringLiteral() || keyType.isNumberLiteral()
-          ? String(keyType.value)
-          : null;
+    /**
+     * The name a key refers to, or `null` when it cannot be determined
+     * statically, as in `const x: Foo = { [someString]: 1 }`.
+     */
+    function getObjectLiteralPropertyName(
+      node: TSESTree.Property,
+    ): string | null {
+      if (!node.computed) {
+        return node.key.type === AST_NODE_TYPES.Identifier
+          ? node.key.name
+          : String(node.key.value);
       }
 
-      /**
-       * A key of an object literal refers to a property of the literal's
-       * contextual type, rather than declaring a property of its own, so it is
-       * checked against that type instead of the key's own symbol.
-       */
-      function checkObjectLiteralProperty(node: TSESTree.Property): void {
-        if (node.parent.type !== AST_NODE_TYPES.ObjectExpression) {
-          return;
-        }
+      const keyType = services.getTypeAtLocation(node.key);
 
-        const propertyName = getObjectLiteralPropertyName(node);
-        if (propertyName == null) {
-          return;
-        }
+      return keyType.isStringLiteral() || keyType.isNumberLiteral()
+        ? String(keyType.value)
+        : null;
+    }
 
-        const contextualType = services.getContextualType(node.parent);
-        if (!contextualType) {
-          return;
-        }
+    /**
+     * A key of an object literal refers to a property of the literal's
+     * contextual type, rather than declaring a property of its own, so it is
+     * checked against that type instead of the key's own symbol.
+     */
+    function checkObjectLiteralProperty(node: TSESTree.Property): void {
+      if (node.parent.type !== AST_NODE_TYPES.ObjectExpression) {
+        return;
+      }
 
-        const deprecation = getPropertyDeprecation(
-          contextualType,
-          propertyName,
-        );
+      const propertyName = getObjectLiteralPropertyName(node);
+      if (propertyName == null) {
+        return;
+      }
+
+      const contextualType = services.getContextualType(node.parent);
+      if (!contextualType) {
+        return;
+      }
+
+      const deprecation = getPropertyDeprecation(contextualType, propertyName);
+      if (!deprecation) {
+        return;
+      }
+
+      const { type, reason } = deprecation;
+      if (typeMatchesSomeSpecifier(type, allow, services.program)) {
+        return;
+      }
+
+      context.report({
+        ...(reason
+          ? {
+              messageId: 'deprecatedWithReason',
+              data: { name: propertyName, reason },
+            }
+          : {
+              messageId: 'deprecated',
+              data: { name: propertyName },
+            }),
+        node: node.key,
+      });
+    }
+
+    function checkMemberExpression(node: TSESTree.MemberExpression): void {
+      if (!node.computed) {
+        return;
+      }
+
+      const propertyType = services.getTypeAtLocation(node.property);
+
+      if (isTypeLiteralType(propertyType)) {
+        const objectType = services.getTypeAtLocation(node.object);
+
+        const propertyName = propertyType.isStringLiteral()
+          ? propertyType.value
+          : // eslint-disable-next-line @typescript-eslint/no-base-to-string
+            String(propertyType.value);
+
+        const deprecation = getPropertyDeprecation(objectType, propertyName);
         if (!deprecation) {
           return;
         }
@@ -496,98 +529,58 @@ export default createRule<Options, MessageIds>({
                 messageId: 'deprecated',
                 data: { name: propertyName },
               }),
-          node: node.key,
+          node: node.property,
         });
       }
+    }
 
-      function checkMemberExpression(node: TSESTree.MemberExpression): void {
-        if (!node.computed) {
+    return {
+      Identifier(node): void {
+        const { parent } = node;
+
+        if (
+          parent.type === AST_NODE_TYPES.ExportNamedDeclaration ||
+          parent.type === AST_NODE_TYPES.ExportAllDeclaration
+        ) {
           return;
         }
 
-        const propertyType = services.getTypeAtLocation(node.property);
-
-        if (isTypeLiteralType(propertyType)) {
-          const objectType = services.getTypeAtLocation(node.object);
-
-          const propertyName = propertyType.isStringLiteral()
-            ? propertyType.value
-            : // eslint-disable-next-line @typescript-eslint/no-base-to-string
-              String(propertyType.value);
-
-          const deprecation = getPropertyDeprecation(objectType, propertyName);
-          if (!deprecation) {
-            return;
-          }
-
-          const { type, reason } = deprecation;
-          if (typeMatchesSomeSpecifier(type, allow, services.program)) {
-            return;
-          }
-
-          context.report({
-            ...(reason
-              ? {
-                  messageId: 'deprecatedWithReason',
-                  data: { name: propertyName, reason },
-                }
-              : {
-                  messageId: 'deprecated',
-                  data: { name: propertyName },
-                }),
-            node: node.property,
-          });
+        // Computed identifier expressions are handled by checkMemberExpression
+        if (
+          parent.type === AST_NODE_TYPES.MemberExpression &&
+          parent.computed &&
+          parent.property === node
+        ) {
+          return;
         }
-      }
 
-      return {
-        Identifier(node): void {
-          const { parent } = node;
-
-          if (
-            parent.type === AST_NODE_TYPES.ExportNamedDeclaration ||
-            parent.type === AST_NODE_TYPES.ExportAllDeclaration
-          ) {
+        if (parent.type === AST_NODE_TYPES.ExportSpecifier) {
+          // only deal with the alias (exported) side, not the local binding
+          if (parent.exported !== node) {
             return;
           }
 
-          // Computed identifier expressions are handled by checkMemberExpression
-          if (
-            parent.type === AST_NODE_TYPES.MemberExpression &&
-            parent.computed &&
-            parent.property === node
-          ) {
+          const symbol = services.getSymbolAtLocation(node);
+          const aliasDeprecation = getJsDocDeprecation(symbol);
+
+          if (aliasDeprecation != null) {
             return;
           }
+        }
 
-          if (parent.type === AST_NODE_TYPES.ExportSpecifier) {
-            // only deal with the alias (exported) side, not the local binding
-            if (parent.exported !== node) {
-              return;
-            }
-
-            const symbol = services.getSymbolAtLocation(node);
-            const aliasDeprecation = getJsDocDeprecation(symbol);
-
-            if (aliasDeprecation != null) {
-              return;
-            }
-          }
-
-          // whether it's a plain identifier or the exported alias
+        // whether it's a plain identifier or the exported alias
+        checkIdentifier(node);
+      },
+      JSXIdentifier(node): void {
+        if (node.parent.type !== AST_NODE_TYPES.JSXClosingElement) {
           checkIdentifier(node);
-        },
-        JSXIdentifier(node): void {
-          if (node.parent.type !== AST_NODE_TYPES.JSXClosingElement) {
-            checkIdentifier(node);
-          }
-        },
-        MemberExpression: checkMemberExpression,
-        PrivateIdentifier: checkIdentifier,
-        Property: checkObjectLiteralProperty,
-        Super: checkIdentifier,
-      };
-    },
+        }
+      },
+      MemberExpression: checkMemberExpression,
+      PrivateIdentifier: checkIdentifier,
+      Property: checkObjectLiteralProperty,
+      Super: checkIdentifier,
+    };
   },
 });
 

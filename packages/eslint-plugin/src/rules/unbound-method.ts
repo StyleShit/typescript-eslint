@@ -173,8 +173,7 @@ export default createRule<Options, MessageIds>({
       ignoreStatic: false,
     },
   ],
-  create: {
-    default(context, [{ ignoreStatic }]) {
+  create(context, [{ ignoreStatic }]) {
     const services = getParserServices(context);
     const currentSourceFile = services.program.getSourceFile(context.filename);
 
@@ -360,7 +359,6 @@ export default createRule<Options, MessageIds>({
         }
       },
     };
-    },
   },
 });
 

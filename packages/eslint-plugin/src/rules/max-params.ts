@@ -64,48 +64,44 @@ export default createRule<Options, MessageIds>({
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [{ countVoidThis: false, max: 3 }],
 
-  create: {
-    default(context, [{ countVoidThis }]) {
-      const baseRules = baseRule.create(context);
+  create(context, [{ countVoidThis }]) {
+    const baseRules = baseRule.create(context);
 
-      if (countVoidThis === true) {
-        return baseRules;
+    if (countVoidThis === true) {
+      return baseRules;
+    }
+
+    const removeVoidThisParam = <T extends FunctionLike>(node: T): T => {
+      if (
+        node.params.length === 0 ||
+        node.params[0].type !== AST_NODE_TYPES.Identifier ||
+        node.params[0].name !== 'this' ||
+        node.params[0].typeAnnotation?.typeAnnotation.type !==
+          AST_NODE_TYPES.TSVoidKeyword
+      ) {
+        return node;
       }
 
-      const removeVoidThisParam = <T extends FunctionLike>(node: T): T => {
-        if (
-          node.params.length === 0 ||
-          node.params[0].type !== AST_NODE_TYPES.Identifier ||
-          node.params[0].name !== 'this' ||
-          node.params[0].typeAnnotation?.typeAnnotation.type !==
-            AST_NODE_TYPES.TSVoidKeyword
-        ) {
-          return node;
-        }
-
-        return {
-          ...node,
-          params: node.params.slice(1),
-        };
-      };
-
-      const wrapListener = <T extends FunctionLike>(
-        listener: FunctionRuleListener<T>,
-      ): FunctionRuleListener<T> => {
-        return (node: T): void => {
-          listener(removeVoidThisParam(node));
-        };
-      };
-
       return {
-        ArrowFunctionExpression: wrapListener(
-          baseRules.ArrowFunctionExpression,
-        ),
-        FunctionDeclaration: wrapListener(baseRules.FunctionDeclaration),
-        FunctionExpression: wrapListener(baseRules.FunctionExpression),
-        TSDeclareFunction: wrapListener(baseRules.FunctionDeclaration),
-        TSFunctionType: wrapListener(baseRules.FunctionDeclaration),
+        ...node,
+        params: node.params.slice(1),
       };
-    },
+    };
+
+    const wrapListener = <T extends FunctionLike>(
+      listener: FunctionRuleListener<T>,
+    ): FunctionRuleListener<T> => {
+      return (node: T): void => {
+        listener(removeVoidThisParam(node));
+      };
+    };
+
+    return {
+      ArrowFunctionExpression: wrapListener(baseRules.ArrowFunctionExpression),
+      FunctionDeclaration: wrapListener(baseRules.FunctionDeclaration),
+      FunctionExpression: wrapListener(baseRules.FunctionExpression),
+      TSDeclareFunction: wrapListener(baseRules.FunctionDeclaration),
+      TSFunctionType: wrapListener(baseRules.FunctionDeclaration),
+    };
   },
 });

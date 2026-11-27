@@ -25,8 +25,7 @@ export default createRule({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create: {
-    default(context) {
+  create(context) {
     const report = (
       enumName: 'AST_NODE_TYPES' | 'AST_TOKEN_TYPES' | 'DefinitionType',
       literal: TSESTree.StringLiteral,
@@ -69,6 +68,5 @@ export default createRule({
         }
       },
     };
-    },
   },
 });

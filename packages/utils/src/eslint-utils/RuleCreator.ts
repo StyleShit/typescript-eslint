@@ -28,33 +28,37 @@ export type RuleCreateWithOptions<
 ) => RuleListener;
 
 /**
- * Per-backend implementations of a rule. All of them share the rule's `meta`,
- * so options, messages and reports must stay identical between backends.
+ * Implementations of a rule for specific backends, used instead of `create`
+ * when a file was parsed by that backend. They share the rule's `meta`, so
+ * options, messages and reports must stay identical to `create`'s.
  */
-export interface RuleCreateByBackend<
+export interface RuleBackendImplementations<
   Options extends readonly unknown[],
   MessageIds extends string,
 > {
   /**
-   * Runs on every backend that has no dedicated implementation.
-   * On tsgo it goes through the classic `ts.*` compatibility adapters.
+   * Runs when the file was parsed by the tsgo backend, in place of `create`
+   * (which would otherwise run through the classic `ts.*` compatibility adapters).
+   * A thunk so that the implementation, and anything it imports at runtime
+   * from `@typescript/native`, is only loaded once tsgo is actually in use.
+   * It receives the rule's `create`, so the implementation can reuse the
+   * listeners it doesn't replace.
    */
-  default: RuleCreateWithOptions<Options, MessageIds>;
-  /**
-   * Runs when the file was parsed by the tsgo backend.
-   * A thunk so that the implementation (and anything it imports at runtime
-   * from `@typescript/native`) is only loaded once tsgo is actually in use.
-   */
-  tsgo?: () => RuleCreateWithOptions<Options, MessageIds>;
+  tsgo?: (
+    create: RuleCreateWithOptions<Options, MessageIds>,
+  ) => RuleCreateWithOptions<Options, MessageIds>;
 }
 
 export interface RuleCreateAndOptions<
   Options extends readonly unknown[],
   MessageIds extends string,
 > {
-  create:
-    | RuleCreateByBackend<Options, MessageIds>
-    | RuleCreateWithOptions<Options, MessageIds>;
+  /**
+   * Optional per-backend implementations. The created rule's own `create`
+   * dispatches to them; it stays a plain function, as ESLint expects.
+   */
+  backends?: RuleBackendImplementations<Options, MessageIds>;
+  create: RuleCreateWithOptions<Options, MessageIds>;
   /** @deprecated Use meta.defaultOptions instead */
   defaultOptions?: Readonly<Options>;
 }
@@ -128,6 +132,7 @@ function createRule<
   MessageIds extends string,
   PluginDocs = unknown,
 >({
+  backends,
   create,
   // Keep accepting deprecated defaultOptions for backward compatibility.
   // eslint-disable-next-line @typescript-eslint/no-deprecated
@@ -142,7 +147,7 @@ function createRule<
   const resolvedDefaultOptions = (meta.defaultOptions ??
     defaultOptions ??
     []) as Readonly<Options>;
-  const selectCreate = createBackendSelector(create);
+  const selectCreate = createBackendSelector(create, backends);
   return {
     create(context: Readonly<RuleContext<MessageIds, Options>>): RuleListener {
       const optionsWithDefault = applyDefault(
@@ -162,17 +167,14 @@ function createBackendSelector<
   Options extends readonly unknown[],
   MessageIds extends string,
 >(
-  create: RuleCreateAndOptions<Options, MessageIds>['create'],
+  create: RuleCreateWithOptions<Options, MessageIds>,
+  backends: RuleBackendImplementations<Options, MessageIds> | undefined,
 ): (
   context: Readonly<RuleContext<MessageIds, Options>>,
 ) => RuleCreateWithOptions<Options, MessageIds> {
-  if (typeof create === 'function') {
-    return () => create;
-  }
-
-  const { default: createDefault, tsgo: loadTsgo } = create;
+  const loadTsgo = backends?.tsgo;
   if (!loadTsgo) {
-    return () => createDefault;
+    return () => create;
   }
 
   let createTsgo: RuleCreateWithOptions<Options, MessageIds> | undefined;
@@ -180,9 +182,9 @@ function createBackendSelector<
     // Read without getParserServices: non-type-aware rules must keep working
     // with other parsers, which don't set a backend at all.
     if (context.sourceCode.parserServices?.backend !== 'tsgo') {
-      return createDefault;
+      return create;
     }
-    createTsgo ??= loadTsgo();
+    createTsgo ??= loadTsgo(create);
     return createTsgo;
   };
 }

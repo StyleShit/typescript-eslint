@@ -72,118 +72,114 @@ export default createRule<Options, MessageIds>({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions,
-  create: {
-    default(context, [{ allow = [] }]) {
-      const rules = baseRule.create(context);
+  create(context, [{ allow = [] }]) {
+    const rules = baseRule.create(context);
 
-      const isAllowedProtectedConstructors = allow.includes(
-        'protected-constructors',
+    const isAllowedProtectedConstructors = allow.includes(
+      'protected-constructors',
+    );
+    const isAllowedPrivateConstructors = allow.includes('private-constructors');
+    const isAllowedDecoratedFunctions = allow.includes('decoratedFunctions');
+    const isAllowedOverrideMethods = allow.includes('overrideMethods');
+
+    /**
+     * Check if the method body is empty
+     * @param node the node to be validated
+     * @returns true if the body is empty
+     * @private
+     */
+    function isBodyEmpty(
+      node: TSESTree.FunctionDeclaration | TSESTree.FunctionExpression,
+    ): boolean {
+      return node.body.body.length === 0;
+    }
+
+    /**
+     * Check if method has parameter properties
+     * @param node the node to be validated
+     * @returns true if the body has parameter properties
+     * @private
+     */
+    function hasParameterProperties(
+      node: TSESTree.FunctionDeclaration | TSESTree.FunctionExpression,
+    ): boolean {
+      return node.params.some(
+        param => param.type === AST_NODE_TYPES.TSParameterProperty,
       );
-      const isAllowedPrivateConstructors = allow.includes(
-        'private-constructors',
-      );
-      const isAllowedDecoratedFunctions = allow.includes('decoratedFunctions');
-      const isAllowedOverrideMethods = allow.includes('overrideMethods');
+    }
 
-      /**
-       * Check if the method body is empty
-       * @param node the node to be validated
-       * @returns true if the body is empty
-       * @private
-       */
-      function isBodyEmpty(
-        node: TSESTree.FunctionDeclaration | TSESTree.FunctionExpression,
-      ): boolean {
-        return node.body.body.length === 0;
-      }
+    /**
+     * @param node the node to be validated
+     * @returns true if the constructor is allowed to be empty
+     * @private
+     */
+    function isAllowedEmptyConstructor(
+      node: TSESTree.FunctionDeclaration | TSESTree.FunctionExpression,
+    ): boolean {
+      const parent = node.parent;
+      if (
+        isBodyEmpty(node) &&
+        parent.type === AST_NODE_TYPES.MethodDefinition &&
+        parent.kind === 'constructor'
+      ) {
+        const { accessibility } = parent;
 
-      /**
-       * Check if method has parameter properties
-       * @param node the node to be validated
-       * @returns true if the body has parameter properties
-       * @private
-       */
-      function hasParameterProperties(
-        node: TSESTree.FunctionDeclaration | TSESTree.FunctionExpression,
-      ): boolean {
-        return node.params.some(
-          param => param.type === AST_NODE_TYPES.TSParameterProperty,
-        );
-      }
-
-      /**
-       * @param node the node to be validated
-       * @returns true if the constructor is allowed to be empty
-       * @private
-       */
-      function isAllowedEmptyConstructor(
-        node: TSESTree.FunctionDeclaration | TSESTree.FunctionExpression,
-      ): boolean {
-        const parent = node.parent;
-        if (
-          isBodyEmpty(node) &&
-          parent.type === AST_NODE_TYPES.MethodDefinition &&
-          parent.kind === 'constructor'
-        ) {
-          const { accessibility } = parent;
-
-          return (
-            // allow protected constructors
-            (accessibility === 'protected' && isAllowedProtectedConstructors) ||
-            // allow private constructors
-            (accessibility === 'private' && isAllowedPrivateConstructors) ||
-            // allow constructors which have parameter properties
-            hasParameterProperties(node)
-          );
-        }
-
-        return false;
-      }
-
-      /**
-       * @param node the node to be validated
-       * @returns true if a function has decorators
-       * @private
-       */
-      function isAllowedEmptyDecoratedFunctions(
-        node: TSESTree.FunctionDeclaration | TSESTree.FunctionExpression,
-      ): boolean {
-        if (isAllowedDecoratedFunctions && isBodyEmpty(node)) {
-          const decorators =
-            node.parent.type === AST_NODE_TYPES.MethodDefinition
-              ? node.parent.decorators
-              : undefined;
-          return !!decorators && !!decorators.length;
-        }
-
-        return false;
-      }
-
-      function isAllowedEmptyOverrideMethod(
-        node: TSESTree.FunctionExpression,
-      ): boolean {
         return (
-          isAllowedOverrideMethods &&
-          isBodyEmpty(node) &&
-          node.parent.type === AST_NODE_TYPES.MethodDefinition &&
-          node.parent.override
+          // allow protected constructors
+          (accessibility === 'protected' && isAllowedProtectedConstructors) ||
+          // allow private constructors
+          (accessibility === 'private' && isAllowedPrivateConstructors) ||
+          // allow constructors which have parameter properties
+          hasParameterProperties(node)
         );
       }
 
-      return {
-        ...rules,
-        FunctionExpression(node): void {
-          if (
-            isAllowedEmptyConstructor(node) ||
-            isAllowedEmptyDecoratedFunctions(node) ||
-            isAllowedEmptyOverrideMethod(node)
-          ) {
-            return;
-          }
+      return false;
+    }
 
-          rules.FunctionExpression(node);
-        },
-      };
-    },
+    /**
+     * @param node the node to be validated
+     * @returns true if a function has decorators
+     * @private
+     */
+    function isAllowedEmptyDecoratedFunctions(
+      node: TSESTree.FunctionDeclaration | TSESTree.FunctionExpression,
+    ): boolean {
+      if (isAllowedDecoratedFunctions && isBodyEmpty(node)) {
+        const decorators =
+          node.parent.type === AST_NODE_TYPES.MethodDefinition
+            ? node.parent.decorators
+            : undefined;
+        return !!decorators && !!decorators.length;
+      }
+
+      return false;
+    }
+
+    function isAllowedEmptyOverrideMethod(
+      node: TSESTree.FunctionExpression,
+    ): boolean {
+      return (
+        isAllowedOverrideMethods &&
+        isBodyEmpty(node) &&
+        node.parent.type === AST_NODE_TYPES.MethodDefinition &&
+        node.parent.override
+      );
+    }
+
+    return {
+      ...rules,
+      FunctionExpression(node): void {
+        if (
+          isAllowedEmptyConstructor(node) ||
+          isAllowedEmptyDecoratedFunctions(node) ||
+          isAllowedEmptyOverrideMethod(node)
+        ) {
+          return;
+        }
+
+        rules.FunctionExpression(node);
+      },
+    };
   },
 });

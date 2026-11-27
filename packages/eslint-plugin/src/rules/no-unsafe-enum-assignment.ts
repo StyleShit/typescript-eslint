@@ -63,454 +63,441 @@ export default createRule<[], MessageIds>({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create: {
-    default(context) {
-      const services = getParserServices(context);
-      const checker = services.program.getTypeChecker();
+  create(context) {
+    const services = getParserServices(context);
+    const checker = services.program.getTypeChecker();
 
-      const checkedNodes = new WeakSet<TSESTree.Node>();
+    const checkedNodes = new WeakSet<TSESTree.Node>();
 
-      function report(
-        node: TSESTree.Node,
-        messageId: MessageIds,
-        receiverTypes: readonly ts.Type[],
-      ) {
-        context.report({
-          node,
-          messageId,
-          data: { enumNames: describeEnumTypes(checker, receiverTypes) },
-        });
-      }
+    function report(
+      node: TSESTree.Node,
+      messageId: MessageIds,
+      receiverTypes: readonly ts.Type[],
+    ) {
+      context.report({
+        node,
+        messageId,
+        data: { enumNames: describeEnumTypes(checker, receiverTypes) },
+      });
+    }
 
-      // Literals inside an already reported value would otherwise be reported
-      // again by their own handlers:
-      //
-      // ```ts
-      // const value: T = [Fruit.Apple, 1] as const;
-      // ```
-      function markChecked(node: TSESTree.Node) {
-        checkedNodes.add(node);
+    // Literals inside an already reported value would otherwise be reported
+    // again by their own handlers:
+    //
+    // ```ts
+    // const value: T = [Fruit.Apple, 1] as const;
+    // ```
+    function markChecked(node: TSESTree.Node) {
+      checkedNodes.add(node);
 
-        switch (node.type) {
-          case AST_NODE_TYPES.ArrayExpression:
-            node.elements.forEach(element => {
-              if (element) {
-                markChecked(element);
-              }
-            });
-            break;
-          case AST_NODE_TYPES.ConditionalExpression:
-            markChecked(node.consequent);
-            markChecked(node.alternate);
-            break;
-          case AST_NODE_TYPES.LogicalExpression:
-            markChecked(node.left);
-            markChecked(node.right);
-            break;
-          case AST_NODE_TYPES.ObjectExpression:
-            node.properties.forEach(markChecked);
-            break;
-          case AST_NODE_TYPES.Property:
-            markChecked(node.value);
-            break;
-          case AST_NODE_TYPES.SpreadElement:
-            markChecked(node.argument);
-            break;
-          case AST_NODE_TYPES.TSAsExpression:
-          case AST_NODE_TYPES.TSNonNullExpression:
-          case AST_NODE_TYPES.TSSatisfiesExpression:
-          case AST_NODE_TYPES.TSTypeAssertion:
-            markChecked(node.expression);
-            break;
-        }
-      }
-
-      function getContextualType(node: TSESTree.Node) {
-        return checker.getContextualType(
-          services.esTreeNodeToTSNodeMap.get(node) as ts.Expression,
-        );
-      }
-
-      // Bitwise combinations of an enum's own members are its bit flags:
-      //
-      // ```ts
-      // const readWrite: Flags = Flags.Read | Flags.Write;
-      // flags &= ~Flags.Write;
-      // ```
-      function isSafeEnumBitwiseExpression(
-        node: TSESTree.Node,
-        receiverType: ts.Type,
-      ): boolean {
-        function isSafeOperand(operand: TSESTree.Node): boolean {
-          return (
-            isSafeEnumBitwiseExpression(operand, receiverType) ||
-            !isMismatchedEnumAssignmentTypes(
-              checker,
-              services.getTypeAtLocation(operand),
-              receiverType,
-            )
-          );
-        }
-
-        switch (node.type) {
-          case AST_NODE_TYPES.BinaryExpression:
-            return (
-              bitwiseOperators.has(node.operator) &&
-              isSafeOperand(node.left) &&
-              isSafeOperand(node.right)
-            );
-
-          case AST_NODE_TYPES.UnaryExpression:
-            return node.operator === '~' && isSafeOperand(node.argument);
-
-          default:
-            return false;
-        }
-      }
-
-      function isUnsafeAssignment(
-        senderNode: TSESTree.Node,
-        receiverType: ts.Type,
-        senderType = services.getTypeAtLocation(senderNode),
-      ) {
-        return (
-          hasEnumAssignmentMismatch(checker, senderType, receiverType) &&
-          !isSafeEnumBitwiseExpression(senderNode, receiverType)
-        );
-      }
-
-      function checkAssignment(
-        receiverType: ts.Type,
-        senderNode: TSESTree.Node,
-        reportingNode: TSESTree.Node,
-        messageId: MessageIds = 'unsafeEnumAssignment',
-        senderType?: ts.Type,
-      ) {
-        // Object and array literals are reported per property and element by
-        // their own handlers instead:
-        //
-        // ```ts
-        // const box: { fruit: Fruit } = { fruit: 1 };
-        // ```
-        if (
-          senderNode.type === AST_NODE_TYPES.ArrayExpression ||
-          senderNode.type === AST_NODE_TYPES.ObjectExpression ||
-          !isUnsafeAssignment(senderNode, receiverType, senderType)
-        ) {
-          return;
-        }
-
-        report(reportingNode, messageId, [receiverType]);
-        markChecked(senderNode);
-      }
-
-      function checkArguments(
-        node:
-          | TSESTree.CallExpression
-          | TSESTree.NewExpression
-          | TSESTree.TaggedTemplateExpression,
-        args: readonly (TSESTree.Expression | TSESTree.SpreadElement)[],
-      ) {
-        const signature = FunctionSignature.create(
-          checker,
-          services.esTreeNodeToTSNodeMap.get(node),
-        );
-
-        if (node.type === AST_NODE_TYPES.TaggedTemplateExpression) {
-          // The first parameter receives the template's strings, not a value.
-          signature.getNextParameterType();
-        }
-
-        for (const argument of args) {
-          if (argument.type === AST_NODE_TYPES.SpreadElement) {
-            const spreadType = services.getTypeAtLocation(argument.argument);
-
-            // takesFruits(...[Fruit.Apple, 1]);
-            if (checker.isTupleType(spreadType)) {
-              const mismatchedParameterTypes = checker
-                .getTypeArguments(spreadType)
-                .flatMap(elementType => {
-                  const parameterType = signature.getNextParameterType();
-                  return parameterType != null &&
-                    hasEnumAssignmentMismatch(
-                      checker,
-                      elementType,
-                      parameterType,
-                    )
-                    ? [parameterType]
-                    : [];
-                });
-
-              if (mismatchedParameterTypes.length > 0) {
-                report(
-                  argument,
-                  'unsafeEnumArgument',
-                  mismatchedParameterTypes,
-                );
-              }
-
-              if (spreadType.target.combinedFlags & ts.ElementFlags.Variable) {
-                signature.consumeRemainingArguments();
-              }
-
-              continue;
-            }
-          }
-
-          // takesFruit(1);
-          // takesFruits(...numbers);
-          const parameterType = signature.getNextParameterType();
-          if (parameterType != null) {
-            checkAssignment(
-              parameterType,
-              argument,
-              argument,
-              'unsafeEnumArgument',
-            );
-          }
-        }
-      }
-
-      function checkClassMember(
-        node: (TSESTree.AccessorProperty | TSESTree.PropertyDefinition) & {
-          value: TSESTree.Expression;
-        },
-      ) {
-        // Class members don't get contextually typed by the members they
-        // implement or override, so those types are also checked explicitly:
-        //
-        // ```ts
-        // class Basket implements HasFruit {
-        //   fruit = 1;
-        // }
-        // ```
-        const heritageMemberTypes = getHeritageMemberTypes(node);
-        if (
-          heritageMemberTypes.length > 0 &&
-          heritageMemberTypes.every(heritageMemberType =>
-            isUnsafeAssignment(node.value, heritageMemberType),
-          )
-        ) {
-          report(node, 'unsafeEnumAssignment', heritageMemberTypes);
-          markChecked(node.value);
-          return;
-        }
-
-        checkAssignment(services.getTypeAtLocation(node), node.value, node);
-      }
-
-      function getHeritageMemberTypes(
-        node: TSESTree.AccessorProperty | TSESTree.PropertyDefinition,
-      ) {
-        const memberName = getStaticMemberAccessValue(node, context);
-        if (typeof memberName !== 'string') {
-          return [];
-        }
-
-        const classNode = services.esTreeNodeToTSNodeMap.get(node).parent;
-
-        return (classNode.heritageClauses ?? []).flatMap(heritageClause =>
-          heritageClause.types.flatMap(heritageType => {
-            const memberSymbol = checker
-              .getTypeAtLocation(heritageType)
-              .getProperty(memberName);
-
-            return memberSymbol ? [checker.getTypeOfSymbol(memberSymbol)] : [];
-          }),
-        );
-      }
-
-      function checkMutation(
-        targetNode: TSESTree.Expression,
-        reportingNode: TSESTree.Node,
-      ) {
-        const targetType = services.getTypeAtLocation(targetNode);
-
-        if (
-          getEnumTypes(checker, getConstraintType(checker, targetType)).length >
-          0
-        ) {
-          report(reportingNode, 'unsafeEnumMutation', [targetType]);
-        }
-      }
-
-      function checkReturn(
-        returnNode: TSESTree.Expression,
-        reportingNode: TSESTree.Node,
-      ) {
-        const functionNode = getParentFunctionNode(returnNode);
-        if (functionNode == null) {
-          // return 1;
-          return;
-        }
-
-        const signature = nullThrows(
-          checker.getSignatureFromDeclaration(
-            services.esTreeNodeToTSNodeMap.get(functionNode),
-          ),
-          'Expected the function to have a signature.',
-        );
-
-        let receiverType: ts.Type | undefined = signature.getReturnType();
-        let senderType: ts.Type | undefined =
-          services.getTypeAtLocation(returnNode);
-
-        // async function getFruit(): Promise<Fruit> {
-        //   return Promise.resolve(1);
-        // }
-        if (functionNode.async) {
-          receiverType = checker.getAwaitedType(receiverType);
-          senderType = checker.getAwaitedType(senderType);
-        }
-
-        if (receiverType && senderType) {
-          checkAssignment(
-            receiverType,
-            returnNode,
-            reportingNode,
-            'unsafeEnumReturn',
-            senderType,
-          );
-        }
-      }
-
-      function checkTypeAssertion(
-        node: TSESTree.TSAsExpression | TSESTree.TSTypeAssertion,
-      ) {
-        checkAssignment(
-          services.getTypeAtLocation(node.typeAnnotation),
-          node.expression,
-          node,
-          'unsafeEnumAssertion',
-        );
-      }
-
-      return {
-        'AccessorProperty[value != null], PropertyDefinition[value != null]':
-          checkClassMember,
-        ArrayExpression(node) {
-          if (checkedNodes.has(node)) {
-            return;
-          }
-
-          // const fruits: Fruit[] = [1, ...numbers];
-          for (const element of node.elements) {
+      switch (node.type) {
+        case AST_NODE_TYPES.ArrayExpression:
+          node.elements.forEach(element => {
             if (element) {
-              const receiverType = getContextualType(element);
-              if (receiverType) {
-                checkAssignment(receiverType, element, element);
-              }
+              markChecked(element);
+            }
+          });
+          break;
+        case AST_NODE_TYPES.ConditionalExpression:
+          markChecked(node.consequent);
+          markChecked(node.alternate);
+          break;
+        case AST_NODE_TYPES.LogicalExpression:
+          markChecked(node.left);
+          markChecked(node.right);
+          break;
+        case AST_NODE_TYPES.ObjectExpression:
+          node.properties.forEach(markChecked);
+          break;
+        case AST_NODE_TYPES.Property:
+          markChecked(node.value);
+          break;
+        case AST_NODE_TYPES.SpreadElement:
+          markChecked(node.argument);
+          break;
+        case AST_NODE_TYPES.TSAsExpression:
+        case AST_NODE_TYPES.TSNonNullExpression:
+        case AST_NODE_TYPES.TSSatisfiesExpression:
+        case AST_NODE_TYPES.TSTypeAssertion:
+          markChecked(node.expression);
+          break;
+      }
+    }
+
+    function getContextualType(node: TSESTree.Node) {
+      return checker.getContextualType(
+        services.esTreeNodeToTSNodeMap.get(node) as ts.Expression,
+      );
+    }
+
+    // Bitwise combinations of an enum's own members are its bit flags:
+    //
+    // ```ts
+    // const readWrite: Flags = Flags.Read | Flags.Write;
+    // flags &= ~Flags.Write;
+    // ```
+    function isSafeEnumBitwiseExpression(
+      node: TSESTree.Node,
+      receiverType: ts.Type,
+    ): boolean {
+      function isSafeOperand(operand: TSESTree.Node): boolean {
+        return (
+          isSafeEnumBitwiseExpression(operand, receiverType) ||
+          !isMismatchedEnumAssignmentTypes(
+            checker,
+            services.getTypeAtLocation(operand),
+            receiverType,
+          )
+        );
+      }
+
+      switch (node.type) {
+        case AST_NODE_TYPES.BinaryExpression:
+          return (
+            bitwiseOperators.has(node.operator) &&
+            isSafeOperand(node.left) &&
+            isSafeOperand(node.right)
+          );
+
+        case AST_NODE_TYPES.UnaryExpression:
+          return node.operator === '~' && isSafeOperand(node.argument);
+
+        default:
+          return false;
+      }
+    }
+
+    function isUnsafeAssignment(
+      senderNode: TSESTree.Node,
+      receiverType: ts.Type,
+      senderType = services.getTypeAtLocation(senderNode),
+    ) {
+      return (
+        hasEnumAssignmentMismatch(checker, senderType, receiverType) &&
+        !isSafeEnumBitwiseExpression(senderNode, receiverType)
+      );
+    }
+
+    function checkAssignment(
+      receiverType: ts.Type,
+      senderNode: TSESTree.Node,
+      reportingNode: TSESTree.Node,
+      messageId: MessageIds = 'unsafeEnumAssignment',
+      senderType?: ts.Type,
+    ) {
+      // Object and array literals are reported per property and element by
+      // their own handlers instead:
+      //
+      // ```ts
+      // const box: { fruit: Fruit } = { fruit: 1 };
+      // ```
+      if (
+        senderNode.type === AST_NODE_TYPES.ArrayExpression ||
+        senderNode.type === AST_NODE_TYPES.ObjectExpression ||
+        !isUnsafeAssignment(senderNode, receiverType, senderType)
+      ) {
+        return;
+      }
+
+      report(reportingNode, messageId, [receiverType]);
+      markChecked(senderNode);
+    }
+
+    function checkArguments(
+      node:
+        | TSESTree.CallExpression
+        | TSESTree.NewExpression
+        | TSESTree.TaggedTemplateExpression,
+      args: readonly (TSESTree.Expression | TSESTree.SpreadElement)[],
+    ) {
+      const signature = FunctionSignature.create(
+        checker,
+        services.esTreeNodeToTSNodeMap.get(node),
+      );
+
+      if (node.type === AST_NODE_TYPES.TaggedTemplateExpression) {
+        // The first parameter receives the template's strings, not a value.
+        signature.getNextParameterType();
+      }
+
+      for (const argument of args) {
+        if (argument.type === AST_NODE_TYPES.SpreadElement) {
+          const spreadType = services.getTypeAtLocation(argument.argument);
+
+          // takesFruits(...[Fruit.Apple, 1]);
+          if (checker.isTupleType(spreadType)) {
+            const mismatchedParameterTypes = checker
+              .getTypeArguments(spreadType)
+              .flatMap(elementType => {
+                const parameterType = signature.getNextParameterType();
+                return parameterType != null &&
+                  hasEnumAssignmentMismatch(checker, elementType, parameterType)
+                  ? [parameterType]
+                  : [];
+              });
+
+            if (mismatchedParameterTypes.length > 0) {
+              report(argument, 'unsafeEnumArgument', mismatchedParameterTypes);
+            }
+
+            if (spreadType.target.combinedFlags & ts.ElementFlags.Variable) {
+              signature.consumeRemainingArguments();
+            }
+
+            continue;
+          }
+        }
+
+        // takesFruit(1);
+        // takesFruits(...numbers);
+        const parameterType = signature.getNextParameterType();
+        if (parameterType != null) {
+          checkAssignment(
+            parameterType,
+            argument,
+            argument,
+            'unsafeEnumArgument',
+          );
+        }
+      }
+    }
+
+    function checkClassMember(
+      node: (TSESTree.AccessorProperty | TSESTree.PropertyDefinition) & {
+        value: TSESTree.Expression;
+      },
+    ) {
+      // Class members don't get contextually typed by the members they
+      // implement or override, so those types are also checked explicitly:
+      //
+      // ```ts
+      // class Basket implements HasFruit {
+      //   fruit = 1;
+      // }
+      // ```
+      const heritageMemberTypes = getHeritageMemberTypes(node);
+      if (
+        heritageMemberTypes.length > 0 &&
+        heritageMemberTypes.every(heritageMemberType =>
+          isUnsafeAssignment(node.value, heritageMemberType),
+        )
+      ) {
+        report(node, 'unsafeEnumAssignment', heritageMemberTypes);
+        markChecked(node.value);
+        return;
+      }
+
+      checkAssignment(services.getTypeAtLocation(node), node.value, node);
+    }
+
+    function getHeritageMemberTypes(
+      node: TSESTree.AccessorProperty | TSESTree.PropertyDefinition,
+    ) {
+      const memberName = getStaticMemberAccessValue(node, context);
+      if (typeof memberName !== 'string') {
+        return [];
+      }
+
+      const classNode = services.esTreeNodeToTSNodeMap.get(node).parent;
+
+      return (classNode.heritageClauses ?? []).flatMap(heritageClause =>
+        heritageClause.types.flatMap(heritageType => {
+          const memberSymbol = checker
+            .getTypeAtLocation(heritageType)
+            .getProperty(memberName);
+
+          return memberSymbol ? [checker.getTypeOfSymbol(memberSymbol)] : [];
+        }),
+      );
+    }
+
+    function checkMutation(
+      targetNode: TSESTree.Expression,
+      reportingNode: TSESTree.Node,
+    ) {
+      const targetType = services.getTypeAtLocation(targetNode);
+
+      if (
+        getEnumTypes(checker, getConstraintType(checker, targetType)).length > 0
+      ) {
+        report(reportingNode, 'unsafeEnumMutation', [targetType]);
+      }
+    }
+
+    function checkReturn(
+      returnNode: TSESTree.Expression,
+      reportingNode: TSESTree.Node,
+    ) {
+      const functionNode = getParentFunctionNode(returnNode);
+      if (functionNode == null) {
+        // return 1;
+        return;
+      }
+
+      const signature = nullThrows(
+        checker.getSignatureFromDeclaration(
+          services.esTreeNodeToTSNodeMap.get(functionNode),
+        ),
+        'Expected the function to have a signature.',
+      );
+
+      let receiverType: ts.Type | undefined = signature.getReturnType();
+      let senderType: ts.Type | undefined =
+        services.getTypeAtLocation(returnNode);
+
+      // async function getFruit(): Promise<Fruit> {
+      //   return Promise.resolve(1);
+      // }
+      if (functionNode.async) {
+        receiverType = checker.getAwaitedType(receiverType);
+        senderType = checker.getAwaitedType(senderType);
+      }
+
+      if (receiverType && senderType) {
+        checkAssignment(
+          receiverType,
+          returnNode,
+          reportingNode,
+          'unsafeEnumReturn',
+          senderType,
+        );
+      }
+    }
+
+    function checkTypeAssertion(
+      node: TSESTree.TSAsExpression | TSESTree.TSTypeAssertion,
+    ) {
+      checkAssignment(
+        services.getTypeAtLocation(node.typeAnnotation),
+        node.expression,
+        node,
+        'unsafeEnumAssertion',
+      );
+    }
+
+    return {
+      'AccessorProperty[value != null], PropertyDefinition[value != null]':
+        checkClassMember,
+      ArrayExpression(node) {
+        if (checkedNodes.has(node)) {
+          return;
+        }
+
+        // const fruits: Fruit[] = [1, ...numbers];
+        for (const element of node.elements) {
+          if (element) {
+            const receiverType = getContextualType(element);
+            if (receiverType) {
+              checkAssignment(receiverType, element, element);
             }
           }
-        },
-        'ArrowFunctionExpression[body.type != "BlockStatement"]'(
-          node: TSESTree.ArrowFunctionExpression & {
-            body: TSESTree.Expression;
-          },
-        ) {
-          checkReturn(node.body, node.body);
-        },
-        AssignmentExpression(node) {
-          if (assigningOperators.has(node.operator)) {
-            checkAssignment(
-              services.getTypeAtLocation(node.left),
-              node.right,
-              node,
-            );
-          } else {
-            checkMutation(node.left, node);
-          }
-        },
-        AssignmentPattern(node) {
+        }
+      },
+      'ArrowFunctionExpression[body.type != "BlockStatement"]'(
+        node: TSESTree.ArrowFunctionExpression & { body: TSESTree.Expression },
+      ) {
+        checkReturn(node.body, node.body);
+      },
+      AssignmentExpression(node) {
+        if (assigningOperators.has(node.operator)) {
           checkAssignment(
             services.getTypeAtLocation(node.left),
             node.right,
             node,
           );
-        },
-        'CallExpression, NewExpression'(
-          node: TSESTree.CallExpression | TSESTree.NewExpression,
+        } else {
+          checkMutation(node.left, node);
+        }
+      },
+      AssignmentPattern(node) {
+        checkAssignment(
+          services.getTypeAtLocation(node.left),
+          node.right,
+          node,
+        );
+      },
+      'CallExpression, NewExpression'(
+        node: TSESTree.CallExpression | TSESTree.NewExpression,
+      ) {
+        checkArguments(node, node.arguments);
+      },
+      'JSXAttribute > JSXExpressionContainer > :not(JSXEmptyExpression)'(
+        node: TSESTree.Expression,
+      ) {
+        const receiverType = getContextualType(node);
+        if (receiverType) {
+          checkAssignment(receiverType, node, node);
+        }
+      },
+      'MemberExpression[computed = true]'(
+        node: TSESTree.MemberExpressionComputedName,
+      ) {
+        const receiverTypes =
+          checker
+            .getSymbolAtLocation(
+              services.esTreeNodeToTSNodeMap.get(node).expression,
+            )
+            ?.declarations?.flatMap(declaration =>
+              getMappedKeyConstraintTypes(checker, declaration),
+            ) ?? [];
+        if (
+          !receiverTypes.some(
+            receiverType => getEnumTypes(checker, receiverType).length > 0,
+          )
         ) {
-          checkArguments(node, node.arguments);
-        },
-        'JSXAttribute > JSXExpressionContainer > :not(JSXEmptyExpression)'(
-          node: TSESTree.Expression,
+          return;
+        }
+
+        // declare const foo: { [key in Fruit]: string };
+        // foo[0];
+        const senderType = services.getTypeAtLocation(node.property);
+        if (
+          receiverTypes.every(
+            receiverType =>
+              hasEnumAssignmentMismatch(checker, senderType, receiverType) ||
+              !checker.isTypeAssignableTo(senderType, receiverType),
+          )
         ) {
-          const receiverType = getContextualType(node);
+          report(node.property, 'unsafeEnumAccess', receiverTypes);
+        }
+      },
+      ObjectExpression(node) {
+        if (checkedNodes.has(node)) {
+          return;
+        }
+
+        // const box: { fruit: Fruit } = { fruit: 1, ...source };
+        for (const property of node.properties) {
+          const [receiverNode, senderNode] =
+            property.type === AST_NODE_TYPES.SpreadElement
+              ? [node, property.argument]
+              : [property.value, property.value];
+
+          const receiverType = getContextualType(receiverNode);
           if (receiverType) {
-            checkAssignment(receiverType, node, node);
+            checkAssignment(receiverType, senderNode, property);
           }
-        },
-        'MemberExpression[computed = true]'(
-          node: TSESTree.MemberExpressionComputedName,
-        ) {
-          const receiverTypes =
-            checker
-              .getSymbolAtLocation(
-                services.esTreeNodeToTSNodeMap.get(node).expression,
-              )
-              ?.declarations?.flatMap(declaration =>
-                getMappedKeyConstraintTypes(checker, declaration),
-              ) ?? [];
-          if (
-            !receiverTypes.some(
-              receiverType => getEnumTypes(checker, receiverType).length > 0,
-            )
-          ) {
-            return;
-          }
-
-          // declare const foo: { [key in Fruit]: string };
-          // foo[0];
-          const senderType = services.getTypeAtLocation(node.property);
-          if (
-            receiverTypes.every(
-              receiverType =>
-                hasEnumAssignmentMismatch(checker, senderType, receiverType) ||
-                !checker.isTypeAssignableTo(senderType, receiverType),
-            )
-          ) {
-            report(node.property, 'unsafeEnumAccess', receiverTypes);
-          }
-        },
-        ObjectExpression(node) {
-          if (checkedNodes.has(node)) {
-            return;
-          }
-
-          // const box: { fruit: Fruit } = { fruit: 1, ...source };
-          for (const property of node.properties) {
-            const [receiverNode, senderNode] =
-              property.type === AST_NODE_TYPES.SpreadElement
-                ? [node, property.argument]
-                : [property.value, property.value];
-
-            const receiverType = getContextualType(receiverNode);
-            if (receiverType) {
-              checkAssignment(receiverType, senderNode, property);
-            }
-          }
-        },
-        ReturnStatement(node) {
-          if (node.argument) {
-            checkReturn(node.argument, node);
-          }
-        },
-        TaggedTemplateExpression(node) {
-          checkArguments(node, node.quasi.expressions);
-        },
-        TSAsExpression: checkTypeAssertion,
-        TSTypeAssertion: checkTypeAssertion,
-        UpdateExpression(node) {
-          checkMutation(node.argument, node);
-        },
-        'VariableDeclarator[init != null]'(
-          node: TSESTree.VariableDeclarator & { init: TSESTree.Expression },
-        ) {
-          checkAssignment(services.getTypeAtLocation(node.id), node.init, node);
-        },
-      };
-    },
+        }
+      },
+      ReturnStatement(node) {
+        if (node.argument) {
+          checkReturn(node.argument, node);
+        }
+      },
+      TaggedTemplateExpression(node) {
+        checkArguments(node, node.quasi.expressions);
+      },
+      TSAsExpression: checkTypeAssertion,
+      TSTypeAssertion: checkTypeAssertion,
+      UpdateExpression(node) {
+        checkMutation(node.argument, node);
+      },
+      'VariableDeclarator[init != null]'(
+        node: TSESTree.VariableDeclarator & { init: TSESTree.Expression },
+      ) {
+        checkAssignment(services.getTypeAtLocation(node.id), node.init, node);
+      },
+    };
   },
 });
 

@@ -54,37 +54,33 @@ export default createRule<Options, MessageIds>({
       allowedNames: [],
     },
   ],
-  create: {
-    default(context, [{ allowDestructuring, allowedNames }]) {
-      return {
-        "VariableDeclarator[init.type='ThisExpression'], AssignmentExpression[right.type='ThisExpression']"(
-          node: TSESTree.AssignmentExpression | TSESTree.VariableDeclarator,
-        ): void {
-          const id =
-            node.type === AST_NODE_TYPES.VariableDeclarator
-              ? node.id
-              : node.left;
-          if (allowDestructuring && id.type !== AST_NODE_TYPES.Identifier) {
-            return;
-          }
+  create(context, [{ allowDestructuring, allowedNames }]) {
+    return {
+      "VariableDeclarator[init.type='ThisExpression'], AssignmentExpression[right.type='ThisExpression']"(
+        node: TSESTree.AssignmentExpression | TSESTree.VariableDeclarator,
+      ): void {
+        const id =
+          node.type === AST_NODE_TYPES.VariableDeclarator ? node.id : node.left;
+        if (allowDestructuring && id.type !== AST_NODE_TYPES.Identifier) {
+          return;
+        }
 
-          const hasAllowedName =
-            id.type === AST_NODE_TYPES.Identifier
-              ? // https://github.com/typescript-eslint/typescript-eslint/issues/5439
-                // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-                allowedNames!.includes(id.name)
-              : false;
-          if (!hasAllowedName) {
-            context.report({
-              node: id,
-              messageId:
-                id.type === AST_NODE_TYPES.Identifier
-                  ? 'thisAssignment'
-                  : 'thisDestructure',
-            });
-          }
-        },
-      };
-    },
+        const hasAllowedName =
+          id.type === AST_NODE_TYPES.Identifier
+            ? // https://github.com/typescript-eslint/typescript-eslint/issues/5439
+              // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+              allowedNames!.includes(id.name)
+            : false;
+        if (!hasAllowedName) {
+          context.report({
+            node: id,
+            messageId:
+              id.type === AST_NODE_TYPES.Identifier
+                ? 'thisAssignment'
+                : 'thisDestructure',
+          });
+        }
+      },
+    };
   },
 });

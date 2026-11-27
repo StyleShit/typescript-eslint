@@ -120,4 +120,74 @@ describe(ESLintUtils.RuleCreator, () => {
     });
     expect(rule.name).toBe('some-name');
   });
+
+  describe('backends', () => {
+    const meta = {
+      docs: { description: 'some description' },
+      messages: { foo: 'some message' },
+      schema: [],
+      type: 'problem',
+    } as const;
+
+    function contextFor(backend: string | undefined) {
+      return {
+        options: [],
+        sourceCode: {
+          parserServices: backend == null ? {} : { backend },
+        },
+      } as unknown as Parameters<
+        ReturnType<typeof ESLintUtils.RuleCreator.withoutDocs>['create']
+      >[0];
+    }
+
+    function createBackendRule() {
+      const defaultListener = {};
+      const tsgoListener = {};
+      const create = vi.fn(() => defaultListener);
+      const createTsgo = vi.fn(() => tsgoListener);
+      const loadTsgo = vi.fn(() => createTsgo);
+      const rule = ESLintUtils.RuleCreator.withoutDocs({
+        backends: { tsgo: loadTsgo },
+        create,
+        meta,
+      });
+      return {
+        create,
+        createTsgo,
+        defaultListener,
+        loadTsgo,
+        rule,
+        tsgoListener,
+      };
+    }
+
+    it('keeps create a plain function and does not expose backends', () => {
+      const { rule } = createBackendRule();
+
+      expect(rule.create).toBeTypeOf('function');
+      expect(rule).not.toHaveProperty('backends');
+    });
+
+    it.for([['classic'], [undefined]] as const)(
+      'runs create when the backend is %s',
+      ([backend]) => {
+        const { create, defaultListener, loadTsgo, rule } = createBackendRule();
+
+        expect(rule.create(contextFor(backend))).toBe(defaultListener);
+        expect(create).toHaveBeenCalledOnce();
+        expect(loadTsgo).not.toHaveBeenCalled();
+      },
+    );
+
+    it('runs the tsgo implementation on tsgo, loading it once', () => {
+      const { create, createTsgo, loadTsgo, rule, tsgoListener } =
+        createBackendRule();
+
+      expect(rule.create(contextFor('tsgo'))).toBe(tsgoListener);
+      expect(rule.create(contextFor('tsgo'))).toBe(tsgoListener);
+      expect(loadTsgo).toHaveBeenCalledExactlyOnceWith(create);
+      expect(createTsgo).toHaveBeenCalledTimes(2);
+      expect(create).not.toHaveBeenCalled();
+    });
+  });
 });

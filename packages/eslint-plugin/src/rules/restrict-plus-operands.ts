@@ -100,8 +100,7 @@ export default createRule<Options, MessageIds>({
       skipCompoundAssignments: false,
     },
   ],
-  create: {
-    default(
+  create(
     context,
     [
       {
@@ -260,7 +259,6 @@ export default createRule<Options, MessageIds>({
         },
       }),
     };
-    },
   },
 });
 

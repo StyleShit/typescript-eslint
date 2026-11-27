@@ -25,61 +25,58 @@ export default createRule({
   },
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- For compatibility with ESLint 8, see #12842
   defaultOptions: [],
-  create: {
-    default(context) {
-      const sourceCode = context.sourceCode;
+  create(context) {
+    const sourceCode = context.sourceCode;
 
-      function getArgumentsText(
-        node: TSESTree.CallExpression | TSESTree.NewExpression,
-      ) {
-        const lastToken = sourceCode.getLastToken(node);
+    function getArgumentsText(
+      node: TSESTree.CallExpression | TSESTree.NewExpression,
+    ) {
+      const lastToken = sourceCode.getLastToken(node);
 
-        if (lastToken == null || !isClosingParenToken(lastToken)) {
+      if (lastToken == null || !isClosingParenToken(lastToken)) {
+        return '';
+      }
+
+      let firstToken: TSESTree.Expression | TSESTree.Token | null = node.callee;
+
+      do {
+        firstToken = sourceCode.getTokenAfter(firstToken);
+        if (!firstToken || firstToken === lastToken) {
           return '';
         }
+      } while (!isOpeningParenToken(firstToken));
 
-        let firstToken: TSESTree.Expression | TSESTree.Token | null =
-          node.callee;
+      return sourceCode.text.slice(firstToken.range[1], lastToken.range[0]);
+    }
 
-        do {
-          firstToken = sourceCode.getTokenAfter(firstToken);
-          if (!firstToken || firstToken === lastToken) {
-            return '';
-          }
-        } while (!isOpeningParenToken(firstToken));
+    /**
+     * Disallow construction of dense arrays using the Array constructor
+     * @param node node to evaluate
+     */
+    function check(
+      node: TSESTree.CallExpression | TSESTree.NewExpression,
+    ): void {
+      if (
+        node.arguments.length !== 1 &&
+        node.callee.type === AST_NODE_TYPES.Identifier &&
+        node.callee.name === 'Array' &&
+        !node.typeArguments
+      ) {
+        context.report({
+          node,
+          messageId: 'useLiteral',
+          fix(fixer) {
+            const argsText = getArgumentsText(node);
 
-        return sourceCode.text.slice(firstToken.range[1], lastToken.range[0]);
+            return fixer.replaceText(node, `[${argsText}]`);
+          },
+        });
       }
+    }
 
-      /**
-       * Disallow construction of dense arrays using the Array constructor
-       * @param node node to evaluate
-       */
-      function check(
-        node: TSESTree.CallExpression | TSESTree.NewExpression,
-      ): void {
-        if (
-          node.arguments.length !== 1 &&
-          node.callee.type === AST_NODE_TYPES.Identifier &&
-          node.callee.name === 'Array' &&
-          !node.typeArguments
-        ) {
-          context.report({
-            node,
-            messageId: 'useLiteral',
-            fix(fixer) {
-              const argsText = getArgumentsText(node);
-
-              return fixer.replaceText(node, `[${argsText}]`);
-            },
-          });
-        }
-      }
-
-      return {
-        CallExpression: check,
-        NewExpression: check,
-      };
-    },
+    return {
+      CallExpression: check,
+      NewExpression: check,
+    };
   },
 });
