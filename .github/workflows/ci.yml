@@ -536,7 +536,7 @@ jobs:
         run: pnpm exec nx run-many -t test --projects="$PROJECTS" --coverage=false
         env:
           CI: true
-          TYPESCRIPT_ESLINT_BACKEND: ${{ matrix.backend }}
+          TYPESCRIPT_ESLINT_EXPERIMENTAL_BACKEND: ${{ matrix.backend }}
           TYPESCRIPT_ESLINT_PROJECT_SERVICE: true
           PROJECTS: ${{ join(matrix.projects, ',') }}
 
@@ -545,7 +545,7 @@ jobs:
         run: pnpm exec nx test eslint-plugin --coverage --coverage.allowExternal "--coverage.include=**/packages/typescript-estree/dist/**" --coverage.reporter=lcov --testTimeout=30000
         env:
           CI: true
-          TYPESCRIPT_ESLINT_BACKEND: tsgo
+          TYPESCRIPT_ESLINT_EXPERIMENTAL_BACKEND: tsgo
           TYPESCRIPT_ESLINT_PROJECT_SERVICE: true
 
       - name: Make tsgo backend coverage paths repository-relative

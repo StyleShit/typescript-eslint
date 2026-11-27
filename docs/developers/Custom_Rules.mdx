@@ -350,7 +350,7 @@ This can be necessary for TypeScript APIs not wrapped by the parser services.
 
 ### tsgo-Specific Implementations
 
-On the [tsgo backend](../packages/Parser.mdx#tsgo-backend), the parser services above go through compatibility adapters over tsgo's own API, and each checker call can be an IPC round trip.
+On the [tsgo backend](../packages/Parser.mdx#experimental-tsgo-backend), the parser services above go through compatibility adapters over tsgo's own API, and each checker call can be an IPC round trip.
 A rule created with `RuleCreator` can provide a separate implementation for tsgo in `backends.tsgo`.
 `create` stays a regular ESLint `create` function and runs on every other backend.
 

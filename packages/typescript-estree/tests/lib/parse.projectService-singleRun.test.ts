@@ -42,7 +42,7 @@ describe('parseAndGenerateServices with projectService in single-run mode', () =
   beforeEach(() => {
     vi.stubEnv('TSESTREE_SINGLE_RUN', 'true');
     // Single-run Programs are a classic project service optimization.
-    vi.stubEnv('TYPESCRIPT_ESLINT_BACKEND', 'classic');
+    vi.stubEnv('TYPESCRIPT_ESLINT_EXPERIMENTAL_BACKEND', 'classic');
     clearCaches();
   });
 

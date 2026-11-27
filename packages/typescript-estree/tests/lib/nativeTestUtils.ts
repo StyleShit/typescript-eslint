@@ -21,7 +21,7 @@ export const nativeFilePath = nativePath(nativeFixtures, 'file.ts');
 
 export function isolateNativeBackend(): void {
   beforeEach(() => {
-    vi.stubEnv('TYPESCRIPT_ESLINT_BACKEND', 'classic');
+    vi.stubEnv('TYPESCRIPT_ESLINT_EXPERIMENTAL_BACKEND', 'classic');
   });
   afterEach(clearCaches);
 }

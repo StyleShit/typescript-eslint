@@ -197,7 +197,7 @@ describe('symlinked directories', () => {
   });
 
   // tsgo keeps the file under its symlinked path, so its real path isn't found.
-  it.skipIf(process.env.TYPESCRIPT_ESLINT_BACKEND === 'tsgo')(
+  it.skipIf(process.env.TYPESCRIPT_ESLINT_EXPERIMENTAL_BACKEND === 'tsgo')(
     'returns a program when the project service is enabled and the file is only in the project under a symlinked path',
     async () => {
       const tmpDir = await createProjectWithSymlinkedDirectory();

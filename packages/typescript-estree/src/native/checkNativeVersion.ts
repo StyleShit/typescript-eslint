@@ -7,6 +7,6 @@ if (
   !semver.satisfies(version, SUPPORTED_VERSIONS, { includePrerelease: true })
 ) {
   throw new Error(
-    `@typescript/native ${version} is not supported; the tsgo backend needs ${SUPPORTED_VERSIONS}.`,
+    `@typescript/native ${version} is not supported; the experimental tsgo backend needs ${SUPPORTED_VERSIONS}.`,
   );
 }

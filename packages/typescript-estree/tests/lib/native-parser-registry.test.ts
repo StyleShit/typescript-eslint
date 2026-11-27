@@ -1,6 +1,6 @@
 import { parseAndGenerateServices } from '../../src/parser.js';
 
-it.skipIf(process.env.TYPESCRIPT_ESLINT_BACKEND === 'tsgo')(
+it.skipIf(process.env.TYPESCRIPT_ESLINT_EXPERIMENTAL_BACKEND === 'tsgo')(
   'names the load failure when the tsgo backend is requested explicitly',
   () => {
     let thrown: unknown;
@@ -15,7 +15,7 @@ it.skipIf(process.env.TYPESCRIPT_ESLINT_BACKEND === 'tsgo')(
 
     expect(thrown).toBeInstanceOf(Error);
     expect((thrown as Error).message).toMatch(
-      /^The tsgo backend could not be loaded: Cannot find module/,
+      /^The experimental tsgo backend could not be loaded: Cannot find module/,
     );
     expect((thrown as Error).message).toMatch(
       /Install a supported TypeScript 7\.1 build aliased as @typescript\/native\.$/,

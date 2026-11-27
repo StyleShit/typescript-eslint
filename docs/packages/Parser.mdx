@@ -351,9 +351,9 @@ This option brings two main benefits over the older `project`:
 
 See [FAQs > Typed Linting > Project Service Issues](../troubleshooting/typed-linting/index.mdx#project-service-issues) for help on working with the project service.
 
-#### tsgo backend
+#### Experimental tsgo backend
 
-The parser includes a backend for tsgo, TypeScript >=7.1's native implementation.
+The parser includes an experimental backend for tsgo, TypeScript >=7.1's native implementation.
 It requires a Node.js version that can `require()` ES modules (20.19, 22.12, or newer) and a side-by-side installation of classic TypeScript 6 and a TypeScript 7.1 nightly aliased as `@typescript/native`.
 The nightly must be at least `7.1.0-dev.20261009.1`:
 
@@ -433,7 +433,7 @@ There are several restrictions on this option to prevent it from being overused:
 
 > Default: `undefined` _(the classic TypeScript backend)_
 
-Set to `'tsgo'` to opt in to the tsgo backend described [above](#tsgo-backend).
+Set to `'tsgo'` to opt in to the experimental tsgo backend described [above](#experimental-tsgo-backend).
 
 ##### `defaultProject`
 

@@ -25,7 +25,7 @@ const PROJECT_SERVICE_PACKAGES = [
   'typescript-estree',
 ];
 
-// Packages that should also be tested with the tsgo backend, alongside `eslint-plugin`.
+// Packages that should also be tested with the experimental tsgo backend, alongside `eslint-plugin`.
 const TSGO_PACKAGES = [...PROJECT_SERVICE_PACKAGES, 'type-utils'];
 
 // Packages whose fixture snapshots are regenerated from scratch to check that they're clean.
